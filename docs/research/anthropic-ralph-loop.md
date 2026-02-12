@@ -71,3 +71,8 @@ feat: add loop_run MCP tool
 test: add loop controller tests
 docs: document completion promise and stop criteria
 ```
+
+## Tips: visa git-historik som graf
+```
+git log --graph --oneline --decorate --all
+```
