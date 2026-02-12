@@ -63,3 +63,11 @@ Inte nödvändigt för daglig ingest/chat-workflow, men bra för "projekt-uppgif
 1) Definiera en minimal loop‑API (CLI + MCP).
 2) Implementera verifierings‑hook (test/health).
 3) Logga iterationer och avslutssignal.
+
+## Exempel på Git-historik (mall)
+```
+feat: add ralph-loop CLI skeleton
+feat: add loop_run MCP tool
+test: add loop controller tests
+docs: document completion promise and stop criteria
+```
