@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from app.core.config import load_settings
 
@@ -83,6 +83,24 @@ def merge_segments_sql(rows: List[Dict[str, Any]]) -> str:
     )
 
 
+def merge_memory_sql(rows: List[Dict[str, Any]]) -> str:
+    if not rows:
+        return "-- no rows"
+    cols = ["MEMORY_ID", "CATEGORY", "TEXT", "TOPICS", "ENTITIES", "SOURCE_REFS", "CREATED_AT"]
+    values = []
+    for r in rows:
+        vals = [r.get(c.lower()) if c != "CREATED_AT" else r.get("created_at") for c in cols]
+        values.append(vals)
+    values_sql = ",\n".join("(" + ", ".join([_lit(v) for v in row]) + ")" for row in values)
+    return (
+        f"MERGE INTO MEMORY AS t USING (SELECT * FROM VALUES\n{values_sql}\n) AS s({', '.join(cols)}) "
+        "ON t.MEMORY_ID = s.MEMORY_ID "
+        "WHEN MATCHED THEN UPDATE SET "
+        + ", ".join([f"t.{c}=s.{c}" for c in cols])
+        + " WHEN NOT MATCHED THEN INSERT (" + ", ".join(cols) + ") VALUES (" + ", ".join([f"s.{c}" for c in cols]) + ");"
+    )
+
+
 def _lit(value: Any) -> str:
     if value is None:
         return "NULL"
@@ -118,9 +136,67 @@ class SnowflakeClient:
         finally:
             ctx.close()
 
-    def search_segments(self, query: str, limit: int = 10) -> str:
+    def execute_query(self, sql: str) -> List[Dict[str, Any]]:
+        if snowflake is None:
+            raise RuntimeError("snowflake-connector-python not installed")
+        if not (self.cfg.account and self.cfg.user and self.cfg.password):
+            raise RuntimeError("Snowflake credentials missing")
+        ctx = snowflake.connect(
+            user=self.cfg.user,
+            password=self.cfg.password,
+            account=self.cfg.account,
+            warehouse=self.cfg.warehouse,
+            database=self.cfg.database,
+            schema=self.cfg.schema,
+        )
+        try:
+            cs = ctx.cursor()
+            cs.execute(sql)
+            cols = [c[0].lower() for c in cs.description]
+            rows = []
+            for row in cs.fetchall():
+                rows.append({cols[i]: row[i] for i in range(len(cols))})
+            return rows
+        finally:
+            ctx.close()
+
+    def search_segments(self, query: str, limit: int = 10, filters: Optional[Dict[str, Any]] = None) -> str:
+        q = query.replace("'", "''")
+        filters = filters or {}
+
+        where = [f"s.TEXT ILIKE '%{q}%'"]
+
+        topics = filters.get("topics") or []
+        entities = filters.get("entities") or []
+        source_type = filters.get("source_type")
+        date_from = filters.get("date_from")
+        date_to = filters.get("date_to")
+
+        for topic in topics:
+            t = str(topic).replace("'", "''")
+            where.append(f"ARRAY_CONTAINS('{t}'::variant, s.TOPICS)")
+        for ent in entities:
+            e = str(ent).replace("'", "''")
+            where.append(f"ARRAY_CONTAINS('{e}'::variant, s.ENTITIES)")
+        if source_type:
+            st = str(source_type).replace("'", "''")
+            where.append(f"d.SOURCE_TYPE = '{st}'")
+        if date_from:
+            where.append(f"d.CREATED_AT >= '{date_from}'")
+        if date_to:
+            where.append(f"d.CREATED_AT <= '{date_to}'")
+
+        where_sql = " AND ".join(where)
+        return (
+            "SELECT s.DOC_ID, s.SEGMENT_ID, s.START_MS, s.END_MS, s.SPEAKER, s.TEXT "
+            "FROM KB_SEGMENTS AS s "
+            "LEFT JOIN DOCUMENTS AS d ON d.DOC_ID = s.DOC_ID "
+            f"WHERE {where_sql} LIMIT {limit}"
+        )
+
+    def search_memory(self, query: str, limit: int = 10) -> str:
         q = query.replace("'", "''")
         return (
-            "SELECT DOC_ID, SEGMENT_ID, START_MS, END_MS, SPEAKER, TEXT FROM KB_SEGMENTS "
-            f"WHERE TEXT ILIKE '%{q}%' LIMIT {limit}"
+            "SELECT MEMORY_ID, CATEGORY, TEXT, TOPICS, ENTITIES, SOURCE_REFS, CREATED_AT "
+            f"FROM MEMORY WHERE TEXT ILIKE '%{q}%' LIMIT {limit}"
         )

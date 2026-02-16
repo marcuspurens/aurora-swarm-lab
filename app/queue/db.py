@@ -45,6 +45,12 @@ class ConnWrapper:
 
 def _sqlite_conn(dsn: str) -> ConnWrapper:
     path = dsn.replace("sqlite://", "", 1)
+    # Keep absolute paths (e.g. /tmp/queue.db) but treat "/./..." and "/../..."
+    # as relative path hints used by configs like sqlite:///./data/aurora_queue.db.
+    if path.startswith("/./") or path == "/.":
+        path = path[1:]
+    elif path.startswith("/../") or path == "/..":
+        path = path[1:]
     if path == "" or path == ":memory:":
         conn = sqlite3.connect(":memory:")
     else:
@@ -95,7 +101,18 @@ def init_db(dsn: Optional[str] = None) -> None:
             cur.execute(
                 "CREATE TABLE IF NOT EXISTS run_log (run_id TEXT PRIMARY KEY, created_at TEXT, lane TEXT, component TEXT, model TEXT, input_json TEXT, output_json TEXT, error TEXT)"
             )
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS memory_items ("
+                "memory_id TEXT PRIMARY KEY, memory_type TEXT, text TEXT, topics TEXT, entities TEXT, source_refs TEXT, "
+                "importance REAL NOT NULL DEFAULT 0.5, confidence REAL NOT NULL DEFAULT 0.7, "
+                "access_count INTEGER NOT NULL DEFAULT 0, last_accessed_at TEXT, expires_at TEXT, pinned_until TEXT, "
+                "created_at TEXT)"
+            )
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS embeddings (doc_id TEXT, segment_id TEXT, source_id TEXT, source_version TEXT, text TEXT, text_hash TEXT, embedding TEXT, start_ms INTEGER, end_ms INTEGER, speaker TEXT, source_refs TEXT, updated_at TEXT, PRIMARY KEY (doc_id, segment_id))"
+            )
             conn.commit()
+            _ensure_memory_columns(conn)
         return
 
     schema_path = Path(__file__).with_name("schema.sql")
@@ -104,3 +121,66 @@ def init_db(dsn: Optional[str] = None) -> None:
         cur = conn.cursor()
         cur.execute(sql)
         conn.commit()
+        _ensure_memory_columns(conn)
+
+
+def _ensure_memory_columns(conn: ConnWrapper) -> None:
+    cur = conn.cursor()
+    if conn.is_sqlite:
+        cur.execute("PRAGMA table_info(memory_items)")
+        rows = cur.fetchall()
+        existing = {str(row[1]).lower() for row in rows}
+        stmts = []
+        if "importance" not in existing:
+            stmts.append("ALTER TABLE memory_items ADD COLUMN importance REAL NOT NULL DEFAULT 0.5")
+        if "confidence" not in existing:
+            stmts.append("ALTER TABLE memory_items ADD COLUMN confidence REAL NOT NULL DEFAULT 0.7")
+        if "access_count" not in existing:
+            stmts.append("ALTER TABLE memory_items ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0")
+        if "last_accessed_at" not in existing:
+            stmts.append("ALTER TABLE memory_items ADD COLUMN last_accessed_at TEXT")
+        if "expires_at" not in existing:
+            stmts.append("ALTER TABLE memory_items ADD COLUMN expires_at TEXT")
+        if "pinned_until" not in existing:
+            stmts.append("ALTER TABLE memory_items ADD COLUMN pinned_until TEXT")
+        for stmt in stmts:
+            try:
+                cur.execute(stmt)
+            except Exception:
+                pass
+        conn.commit()
+        return
+
+    try:
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'memory_items'"
+        )
+        rows = cur.fetchall()
+        existing = {str(row[0]).lower() for row in rows}
+    except Exception:
+        return
+
+    stmts = []
+    if "importance" not in existing:
+        stmts.append("ALTER TABLE memory_items ADD COLUMN importance DOUBLE PRECISION NOT NULL DEFAULT 0.5")
+    if "confidence" not in existing:
+        stmts.append("ALTER TABLE memory_items ADD COLUMN confidence DOUBLE PRECISION NOT NULL DEFAULT 0.7")
+    if "access_count" not in existing:
+        stmts.append("ALTER TABLE memory_items ADD COLUMN access_count INT NOT NULL DEFAULT 0")
+    if "last_accessed_at" not in existing:
+        stmts.append("ALTER TABLE memory_items ADD COLUMN last_accessed_at TIMESTAMPTZ")
+    if "expires_at" not in existing:
+        stmts.append("ALTER TABLE memory_items ADD COLUMN expires_at TIMESTAMPTZ")
+    if "pinned_until" not in existing:
+        stmts.append("ALTER TABLE memory_items ADD COLUMN pinned_until TIMESTAMPTZ")
+    for stmt in stmts:
+        try:
+            cur.execute(stmt)
+        except Exception:
+            pass
+    try:
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_memory_type_created ON memory_items(memory_type, created_at DESC)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_memory_expires ON memory_items(expires_at)")
+    except Exception:
+        pass
+    conn.commit()

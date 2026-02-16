@@ -23,6 +23,13 @@ def make_source_id(kind: str, value: str) -> str:
     return f"{kind}:{value}"
 
 
+def parse_source_id(source_id: str) -> tuple[str, str]:
+    if ":" not in source_id:
+        raise ValueError(f"Invalid source_id: {source_id}")
+    kind, value = source_id.split(":", 1)
+    return kind, value
+
+
 def safe_source_id(source_id: str) -> str:
     safe = re.sub(r"[^a-zA-Z0-9._-]", "_", source_id)
     return safe[:200]

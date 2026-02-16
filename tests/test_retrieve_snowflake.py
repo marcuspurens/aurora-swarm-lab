@@ -1,12 +1,62 @@
 from app.modules.retrieve.retrieve_snowflake import retrieve
+from app.modules.memory.context_handoff import record_turn_and_refresh
+from app.modules.memory.memory_write import write_memory
+from app.queue.db import init_db
 
 
 class FakeClient:
-    def search_segments(self, query: str, limit: int = 10) -> str:
-        return f"SQL({query},{limit})"
+    def search_segments(self, query: str, limit: int = 10, filters=None) -> str:
+        return f"SQL({query},{limit},{filters})"
+
+    def execute_query(self, sql: str):
+        return [
+            {
+                "doc_id": "d1",
+                "segment_id": "s1",
+                "start_ms": 0,
+                "end_ms": 10,
+                "speaker": "UNKNOWN",
+                "text": "hello",
+            }
+        ]
 
 
-def test_retrieve_shape():
-    results = retrieve("hello", limit=5, client=FakeClient())
+class FakeEmptyClient:
+    def search_segments(self, query: str, limit: int = 10, filters=None) -> str:
+        return f"SQL({query},{limit},{filters})"
+
+    def execute_query(self, sql: str):
+        return []
+
+
+def test_retrieve_shape(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    monkeypatch.setenv("EMBEDDINGS_ENABLED", "0")
+    monkeypatch.setenv("MEMORY_ENABLED", "1")
+    monkeypatch.setenv("MEMORY_RETRIEVE_LIMIT", "3")
+    init_db()
+    write_memory(memory_type="working", text="hello from memory", publish_long_term=False)
+
+    results = retrieve("hello", limit=5, filters={"topics": ["a"]}, client=FakeClient())
     assert isinstance(results, list)
-    assert results[0]["sql"] == "SQL(hello,5)"
+    assert any(r.get("doc_id") == "d1" for r in results)
+    assert any(str(r.get("doc_id", "")).startswith("memory:") for r in results)
+
+
+def test_retrieve_uses_context_handoff(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    monkeypatch.setenv("ARTIFACT_ROOT", str(tmp_path / "artifacts"))
+    monkeypatch.setenv("EMBEDDINGS_ENABLED", "0")
+    monkeypatch.setenv("MEMORY_ENABLED", "0")
+    monkeypatch.setenv("CONTEXT_HANDOFF_ENABLED", "1")
+    init_db()
+    record_turn_and_refresh(
+        question="What are we working on?",
+        answer_text="We are implementing automatic context handoff.",
+        citations=[],
+    )
+
+    results = retrieve("status what are we working on next", limit=5, client=FakeEmptyClient())
+    assert any(r.get("doc_id") == "context:auto_handoff" for r in results)
