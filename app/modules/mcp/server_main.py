@@ -656,6 +656,19 @@ def _intake_html() -> str:
       display: grid;
       gap: 12px;
     }
+    .dropzone {
+      border: 1px dashed var(--border);
+      transition: border-color 120ms ease, box-shadow 120ms ease;
+    }
+    .dropzone.active {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(31, 111, 91, 0.18);
+    }
+    .hint {
+      margin: 0;
+      font-size: 13px;
+      color: var(--muted);
+    }
     .badge {
       display: inline-block;
       padding: 4px 8px;
@@ -695,12 +708,17 @@ def _intake_html() -> str:
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>Paste links to ingest</h1>
-      <p>YouTube links auto-transcribe. Other URLs ingest as readable text. Local file paths also work.</p>
+      <h1>Paste or drop files/links to ingest</h1>
+      <p>YouTube links auto-transcribe. Other URLs ingest as readable text. You can also drop files from Finder.</p>
     </div>
     <div class="card grid">
-      <textarea id="input" placeholder="https://youtu.be/...&#10;https://example.com/article&#10;/Users/name/Documents/report.pdf"></textarea>
+      <textarea class="dropzone" id="input" placeholder="https://youtu.be/...&#10;https://example.com/article&#10;/Users/name/Documents/report.pdf"></textarea>
+      <p class="hint">Tip: drag files from Finder here, or click Add files/folder.</p>
+      <input id="file-picker" type="file" multiple style="display:none" />
+      <input id="folder-picker" type="file" webkitdirectory directory multiple style="display:none" />
       <div class="actions">
+        <button id="pick-files" class="secondary">Add files</button>
+        <button id="pick-folder" class="secondary">Add folder</button>
         <button id="submit">Ingest (auto)</button>
         <button id="ask" class="secondary">Ask</button>
         <button id="clear" class="secondary">Clear</button>
@@ -733,10 +751,15 @@ def _intake_html() -> str:
     const submitBtn = document.getElementById("submit");
     const askBtn = document.getElementById("ask");
     const clearBtn = document.getElementById("clear");
+    const pickFilesBtn = document.getElementById("pick-files");
+    const pickFolderBtn = document.getElementById("pick-folder");
+    const filePicker = document.getElementById("file-picker");
+    const folderPicker = document.getElementById("folder-picker");
     const promptEl = document.getElementById("prompt");
     const promptIngest = document.getElementById("prompt-ingest");
     const promptAsk = document.getElementById("prompt-ask");
     const promptCancel = document.getElementById("prompt-cancel");
+    let dragDepth = 0;
 
     function setStatus(text) {
       statusEl.textContent = text;
@@ -744,6 +767,107 @@ def _intake_html() -> str:
 
     function setOutput(data) {
       outputEl.textContent = JSON.stringify(data, null, 2);
+    }
+
+    function unique(values) {
+      const seen = new Set();
+      const out = [];
+      for (const value of values) {
+        const item = String(value || "").trim();
+        if (!item || seen.has(item)) {
+          continue;
+        }
+        seen.add(item);
+        out.push(item);
+      }
+      return out;
+    }
+
+    function appendItems(items) {
+      const values = unique(items);
+      if (!values.length) {
+        return 0;
+      }
+      const before = inputEl.value.trim();
+      inputEl.value = before ? `${before}\n${values.join("\n")}` : values.join("\n");
+      return values.length;
+    }
+
+    function parseUriList(raw) {
+      const out = [];
+      for (const line of String(raw || "").split("\n")) {
+        const value = line.trim();
+        if (!value || value.startsWith("#")) {
+          continue;
+        }
+        out.push(value);
+      }
+      return out;
+    }
+
+    function parsePlainText(raw) {
+      const out = [];
+      for (const line of String(raw || "").split("\n")) {
+        const value = line.trim();
+        if (!value) {
+          continue;
+        }
+        if (
+          value.startsWith("http://") ||
+          value.startsWith("https://") ||
+          value.startsWith("file://") ||
+          value.startsWith("/") ||
+          value.startsWith("~") ||
+          /^[A-Za-z]:\\/.test(value)
+        ) {
+          out.push(value);
+        }
+      }
+      return out;
+    }
+
+    function pathsFromFileList(fileList) {
+      const out = [];
+      let unresolved = 0;
+      for (const file of Array.from(fileList || [])) {
+        const rawPath = typeof file.path === "string" ? file.path.trim() : "";
+        if (rawPath) {
+          out.push(rawPath);
+        } else {
+          unresolved += 1;
+        }
+      }
+      return { paths: out, unresolved };
+    }
+
+    function closeDropState() {
+      dragDepth = 0;
+      inputEl.classList.remove("active");
+    }
+
+    function collectDropItems(event) {
+      const transfer = event.dataTransfer;
+      if (!transfer) {
+        return { items: [], unresolved: 0 };
+      }
+      const items = [];
+      items.push(...parseUriList(transfer.getData("text/uri-list")));
+      items.push(...parsePlainText(transfer.getData("text/plain")));
+      const fromFiles = pathsFromFileList(transfer.files);
+      items.push(...fromFiles.paths);
+      return { items: unique(items), unresolved: fromFiles.unresolved };
+    }
+
+    function addFromPicker(fileList) {
+      const parsed = pathsFromFileList(fileList);
+      const added = appendItems(parsed.paths);
+      if (added > 0) {
+        setStatus(`Added ${added} item(s). Click Ingest (auto).`);
+      } else if (parsed.unresolved > 0) {
+        setStatus("Picker opened, but absolute paths were not exposed. Drag from Finder or paste file paths.");
+      } else {
+        setStatus("No files selected.");
+      }
     }
 
     async function callTool(name, args) {
@@ -805,9 +929,48 @@ def _intake_html() -> str:
         }
       }, 0);
     });
+    inputEl.addEventListener("dragenter", (event) => {
+      event.preventDefault();
+      dragDepth += 1;
+      inputEl.classList.add("active");
+    });
+    inputEl.addEventListener("dragover", (event) => {
+      event.preventDefault();
+    });
+    inputEl.addEventListener("dragleave", (event) => {
+      event.preventDefault();
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) {
+        inputEl.classList.remove("active");
+      }
+    });
+    inputEl.addEventListener("drop", (event) => {
+      event.preventDefault();
+      closeDropState();
+      const parsed = collectDropItems(event);
+      const added = appendItems(parsed.items);
+      if (added > 0) {
+        setStatus(`Added ${added} dropped item(s). Click Ingest (auto).`);
+        openPrompt();
+      } else if (parsed.unresolved > 0) {
+        setStatus("Drop detected, but client hid file paths. Try dragging from Finder or paste absolute paths.");
+      } else {
+        setStatus("Drop detected, but no importable items found.");
+      }
+    });
 
     submitBtn.addEventListener("click", doIngest);
     askBtn.addEventListener("click", doAsk);
+    pickFilesBtn.addEventListener("click", () => filePicker.click());
+    pickFolderBtn.addEventListener("click", () => folderPicker.click());
+    filePicker.addEventListener("change", () => {
+      addFromPicker(filePicker.files);
+      filePicker.value = "";
+    });
+    folderPicker.addEventListener("change", () => {
+      addFromPicker(folderPicker.files);
+      folderPicker.value = "";
+    });
     promptIngest.addEventListener("click", async () => {
       closePrompt();
       await doIngest();
@@ -820,6 +983,7 @@ def _intake_html() -> str:
 
     clearBtn.addEventListener("click", () => {
       inputEl.value = "";
+      closeDropState();
       setOutput({});
       setStatus("Cleared.");
     });

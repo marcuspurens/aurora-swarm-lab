@@ -245,7 +245,8 @@ python -m app.cli.main mcp-server
 python -m app.cli.main mcp-server
 ```
 2) Öppna UI-resursen `ui://intake` via MCP-klienten.
-3) Klistra in länkar och klicka "Enqueue ingest".
+3) Klistra in länkar/filsökvägar, eller drag-and-drop filer från Finder.
+4) Klicka "Ingest (auto)".
 
 ## Phase G (P6): Obsidian auto-intake (MVP)
 1) Sätt `OBSIDIAN_VAULT_PATH` i `.env`.

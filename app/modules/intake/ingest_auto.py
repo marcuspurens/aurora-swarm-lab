@@ -14,7 +14,7 @@ from app.modules.intake.intake_youtube import compute_source_version as compute_
 from app.queue.jobs import enqueue_job
 
 
-_URL_RE = re.compile(r"https?://\\S+")
+_URL_RE = re.compile(r"https?://\S+")
 _TRAILING_PUNCT = ".,);:!?]"
 
 
