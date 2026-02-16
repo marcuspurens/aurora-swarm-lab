@@ -22,6 +22,7 @@ from app.queue.db import init_db, get_conn
 from app.modules.memory.memory_write import write_memory
 from app.modules.memory.memory_recall import recall as recall_memory
 from app.modules.memory.router import parse_explicit_remember, route_memory
+from app.modules.memory.retrieval_feedback import record_retrieval_feedback
 from app.modules.memory.context_handoff import (
     get_handoff,
     inject_session_resume_evidence,
@@ -238,6 +239,15 @@ def _tool_ask(args: Dict[str, Any]) -> Dict[str, Any]:
     analysis = analyze(question, combined) if need_strong else None
     result = synthesize(question, combined, analysis=analysis, use_strong_model=need_strong)
     payload = result.model_dump()
+    try:
+        record_retrieval_feedback(
+            question=question,
+            evidence=combined,
+            citations=payload.get("citations") or [],
+            answer_text=str(payload.get("answer_text") or ""),
+        )
+    except Exception:
+        pass
     try:
         record_turn_and_refresh(
             question=question,

@@ -22,6 +22,7 @@ from app.modules.graph.graph_retrieve import retrieve as graph_retrieve
 from app.modules.memory.memory_write import write_memory
 from app.modules.memory.memory_recall import recall as recall_memory
 from app.modules.memory.router import parse_explicit_remember, route_memory
+from app.modules.memory.retrieval_feedback import record_retrieval_feedback
 from app.modules.memory.context_handoff import (
     get_handoff,
     inject_session_resume_evidence,
@@ -176,6 +177,15 @@ def cmd_ask(args) -> None:
     need_strong = plan.need_strong_model or len(combined_evidence) < 2
     analysis = analyze(question, combined_evidence) if need_strong else None
     result = synthesize(question, combined_evidence, analysis=analysis, use_strong_model=need_strong)
+    try:
+        record_retrieval_feedback(
+            question=question,
+            evidence=combined_evidence,
+            citations=[c.model_dump() for c in result.citations],
+            answer_text=result.answer_text,
+        )
+    except Exception:
+        pass
     try:
         record_turn_and_refresh(
             question=question,

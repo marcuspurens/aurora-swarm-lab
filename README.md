@@ -112,6 +112,7 @@ För ny chatt-resume kan du skicka `--session-id` i CLI (eller `session_id` i MC
 Bakgrunds-checkpoint i MCP-servern styrs via `CONTEXT_HANDOFF_BACKGROUND_INTERVAL_SECONDS` (sekunder, default 300).
 Count-baserad pre-compaction av session-turns styrs via `CONTEXT_HANDOFF_PRE_COMPACTION_TURN_COUNT` (default 12).
 `ask` stöder nu explicit minnes-hook: fraser som `remember this: ...` eller `kom ihåg detta: ...` routeas till `memory_kind` (`semantic/episodic/procedural`) och kan superseda motsägande minnen.
+Retrospective retrieval feedback-loop är aktiv: efter `ask` skrivs feedback-minnen baserat på evidence + citations, och nästa retrieval använder dessa för lätt reranking. Styrs via `RETRIEVAL_FEEDBACK_*` i `.env`.
 
 Visa senaste auto-handoff:
 ```

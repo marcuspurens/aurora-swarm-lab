@@ -29,6 +29,31 @@ class FakeEmptyClient:
         return []
 
 
+class FakeDualClient:
+    def search_segments(self, query: str, limit: int = 10, filters=None) -> str:
+        return f"SQL({query},{limit},{filters})"
+
+    def execute_query(self, sql: str):
+        return [
+            {
+                "doc_id": "doc-a",
+                "segment_id": "seg-a",
+                "start_ms": 0,
+                "end_ms": 10,
+                "speaker": "UNKNOWN",
+                "text": "aurora roadmap timeline",
+            },
+            {
+                "doc_id": "doc-b",
+                "segment_id": "seg-b",
+                "start_ms": 0,
+                "end_ms": 10,
+                "speaker": "UNKNOWN",
+                "text": "aurora roadmap timeline",
+            },
+        ]
+
+
 def test_retrieve_shape(tmp_path, monkeypatch):
     db_path = tmp_path / "queue.db"
     monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
@@ -93,3 +118,30 @@ def test_retrieve_filters_memory_by_kind(tmp_path, monkeypatch):
     memory_rows = [row for row in results if str(row.get("doc_id", "")).startswith("memory:")]
     assert memory_rows
     assert all(row.get("memory_kind") == "procedural" for row in memory_rows)
+
+
+def test_retrieve_uses_feedback_to_rerank_segments(tmp_path, monkeypatch):
+    from app.modules.memory.retrieval_feedback import record_retrieval_feedback
+
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    monkeypatch.setenv("EMBEDDINGS_ENABLED", "0")
+    monkeypatch.setenv("MEMORY_ENABLED", "1")
+    monkeypatch.setenv("CONTEXT_HANDOFF_ENABLED", "0")
+    monkeypatch.setenv("RETRIEVAL_FEEDBACK_ENABLED", "1")
+    init_db()
+
+    record_retrieval_feedback(
+        question="aurora roadmap timeline",
+        evidence=[
+            {"doc_id": "doc-a", "segment_id": "seg-a", "retrieval_source": "keyword"},
+            {"doc_id": "doc-b", "segment_id": "seg-b", "retrieval_source": "keyword"},
+        ],
+        citations=[{"doc_id": "doc-a", "segment_id": "seg-a"}],
+        answer_text="answer used doc-a",
+    )
+
+    results = retrieve("aurora roadmap timeline", limit=3, client=FakeDualClient())
+    top_two = [row for row in results if row.get("doc_id") in {"doc-a", "doc-b"}][:2]
+    assert len(top_two) == 2
+    assert top_two[0]["doc_id"] == "doc-a"

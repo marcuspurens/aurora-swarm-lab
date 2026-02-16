@@ -10,6 +10,7 @@ from app.core.config import load_settings
 from app.modules.embeddings.embedding_store import search_embeddings
 from app.modules.memory.context_handoff import load_handoff_text
 from app.modules.memory.memory_recall import recall as recall_memory
+from app.modules.memory.retrieval_feedback import apply_retrieval_feedback
 from app.modules.memory.policy import overlap_score, tokens
 
 
@@ -129,6 +130,10 @@ def retrieve(
             pass
 
     deduped = _dedupe_by_best_score(candidates)
+    try:
+        apply_retrieval_feedback(query, deduped)
+    except Exception:
+        pass
     deduped.sort(key=lambda row: float(row.get("final_score", 0.0)), reverse=True)
     top = deduped[:limit]
     if top:

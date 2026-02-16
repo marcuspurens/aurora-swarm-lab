@@ -207,3 +207,42 @@ def test_mcp_ask_explicit_remember_short_circuits_swarm(tmp_path, monkeypatch):
     recalled = recall("favorite color", limit=5, memory_type="working")
     assert recalled
     assert recalled[0].get("memory_kind") == "semantic"
+
+
+def test_mcp_ask_records_retrieval_feedback(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    init_db()
+
+    captured = {}
+    monkeypatch.setattr(
+        server_main,
+        "route_question",
+        lambda q: RouteOutput(intent="ask", filters={}, retrieve_top_k=2, need_strong_model=False, reason="ok"),
+    )
+    monkeypatch.setattr(
+        server_main,
+        "retrieve",
+        lambda question, limit=10, filters=None: [
+            {"doc_id": "d1", "segment_id": "s1", "text_snippet": "a"},
+            {"doc_id": "d2", "segment_id": "s2", "text_snippet": "b"},
+        ],
+    )
+    monkeypatch.setattr(server_main, "graph_retrieve", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(server_main, "record_turn_and_refresh", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        server_main,
+        "record_retrieval_feedback",
+        lambda **kwargs: captured.setdefault("feedback", kwargs),
+    )
+    monkeypatch.setattr(server_main, "synthesize", lambda *_args, **_kwargs: SynthesizeOutput(answer_text="ok", citations=[]))
+
+    resp = server_main.handle_request(
+        {
+            "method": "tools/call",
+            "params": {"name": "ask", "arguments": {"question": "What's new?"}},
+        }
+    )
+    assert resp["answer_text"] == "ok"
+    assert "feedback" in captured
+    assert captured["feedback"]["question"] == "What's new?"

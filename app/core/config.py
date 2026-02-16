@@ -28,6 +28,12 @@ class Settings:
     embeddings_enabled: bool
     memory_enabled: bool
     memory_retrieve_limit: int
+    retrieval_feedback_enabled: bool
+    retrieval_feedback_history_limit: int
+    retrieval_feedback_signal_limit: int
+    retrieval_feedback_cited_boost: float
+    retrieval_feedback_missed_penalty: float
+    retrieval_feedback_min_token_overlap: float
     context_handoff_enabled: bool
     context_handoff_turn_limit: int
     context_handoff_resume_idle_minutes: int
@@ -83,6 +89,12 @@ def load_settings() -> Settings:
         embeddings_enabled=_getenv_bool("EMBEDDINGS_ENABLED", True),
         memory_enabled=_getenv_bool("MEMORY_ENABLED", True),
         memory_retrieve_limit=int(os.getenv("MEMORY_RETRIEVE_LIMIT", "4")),
+        retrieval_feedback_enabled=_getenv_bool("RETRIEVAL_FEEDBACK_ENABLED", True),
+        retrieval_feedback_history_limit=max(10, int(os.getenv("RETRIEVAL_FEEDBACK_HISTORY_LIMIT", "80"))),
+        retrieval_feedback_signal_limit=max(3, int(os.getenv("RETRIEVAL_FEEDBACK_SIGNAL_LIMIT", "8"))),
+        retrieval_feedback_cited_boost=max(0.0, float(os.getenv("RETRIEVAL_FEEDBACK_CITED_BOOST", "0.08"))),
+        retrieval_feedback_missed_penalty=max(0.0, float(os.getenv("RETRIEVAL_FEEDBACK_MISSED_PENALTY", "0.03"))),
+        retrieval_feedback_min_token_overlap=max(0.0, float(os.getenv("RETRIEVAL_FEEDBACK_MIN_TOKEN_OVERLAP", "0.2"))),
         context_handoff_enabled=_getenv_bool("CONTEXT_HANDOFF_ENABLED", True),
         context_handoff_turn_limit=int(os.getenv("CONTEXT_HANDOFF_TURN_LIMIT", "20")),
         context_handoff_resume_idle_minutes=int(os.getenv("CONTEXT_HANDOFF_RESUME_IDLE_MINUTES", "45")),
