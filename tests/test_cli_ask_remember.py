@@ -69,3 +69,49 @@ def test_cli_ask_records_retrieval_feedback(tmp_path, monkeypatch):
     assert retrieve_capture["filters"]["user_id"] == "user-1"
     assert retrieve_capture["filters"]["project_id"] == "proj-1"
     assert retrieve_capture["filters"]["session_id"] == "session-7"
+
+
+def test_cli_ask_uses_default_scope_from_env(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    monkeypatch.setenv("AURORA_DEFAULT_USER_ID", "default-user")
+    monkeypatch.setenv("AURORA_DEFAULT_PROJECT_ID", "default-project")
+    monkeypatch.setenv("AURORA_DEFAULT_SESSION_ID", "default-session")
+    init_db()
+
+    captured = {}
+    retrieve_capture = {}
+    monkeypatch.setattr(
+        cli_main,
+        "route_question",
+        lambda q: RouteOutput(intent="ask", filters={}, retrieve_top_k=2, need_strong_model=False, reason="ok"),
+    )
+
+    def fake_retrieve(question, limit=10, filters=None):
+        retrieve_capture["filters"] = dict(filters or {})
+        return [{"doc_id": "d1", "segment_id": "s1", "text_snippet": "x"}]
+
+    monkeypatch.setattr(cli_main, "retrieve", fake_retrieve)
+    monkeypatch.setattr(cli_main, "graph_retrieve", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(cli_main, "analyze", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli_main, "synthesize", lambda *_args, **_kwargs: SynthesizeOutput(answer_text="ok", citations=[]))
+    monkeypatch.setattr(cli_main, "record_turn_and_refresh", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        cli_main,
+        "record_retrieval_feedback",
+        lambda **kwargs: captured.setdefault("feedback", kwargs),
+    )
+
+    args = SimpleNamespace(
+        question="How is roadmap?",
+        session_id=None,
+        user_id=None,
+        project_id=None,
+        remember=False,
+    )
+    cli_main.cmd_ask(args)
+
+    assert retrieve_capture["filters"]["user_id"] == "default-user"
+    assert retrieve_capture["filters"]["project_id"] == "default-project"
+    assert retrieve_capture["filters"]["session_id"] == "default-session"
+    assert captured["feedback"]["session_id"] == "default-session"

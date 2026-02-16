@@ -6,6 +6,7 @@ import json
 import sys
 from typing import Any, Dict, List, Optional
 
+from app.core.config import load_settings
 from app.core.ids import make_source_id, sha256_file
 from app.core.logging import configure_logging
 from app.core.textnorm import normalize_identifier, normalize_user_text
@@ -427,16 +428,29 @@ def _tool_intake_open(_args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _parse_scope_arguments(args: Dict[str, Any], error_prefix: str) -> Dict[str, str]:
+    settings = load_settings()
+    defaults = {
+        "user_id": normalize_identifier(settings.default_user_id, max_len=120) or None,
+        "project_id": normalize_identifier(settings.default_project_id, max_len=120) or None,
+        "session_id": normalize_identifier(settings.default_session_id, max_len=120) or None,
+    }
     out: Dict[str, str] = {}
     for key in ("user_id", "project_id", "session_id"):
         value = args.get(key)
         if value is None:
+            default_value = defaults.get(key)
+            if default_value:
+                out[key] = default_value
             continue
         if not isinstance(value, str):
             raise ValueError(f"{error_prefix}.{key} must be a string when provided")
         normalized = normalize_identifier(value, max_len=120)
         if normalized:
             out[key] = normalized
+            continue
+        default_value = defaults.get(key)
+        if default_value:
+            out[key] = default_value
     return out
 
 

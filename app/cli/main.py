@@ -152,9 +152,11 @@ def cmd_ask(args) -> None:
     question = normalize_user_text(args.question, max_len=2400)
     if not question:
         raise SystemExit("Error: question must be a non-empty string.")
-    user_id = normalize_identifier(getattr(args, "user_id", None), max_len=120) or None
-    project_id = normalize_identifier(getattr(args, "project_id", None), max_len=120) or None
-    session_id = normalize_identifier(args.session_id, max_len=120) or None
+    user_id, project_id, session_id = _resolve_scope(
+        user_id=getattr(args, "user_id", None),
+        project_id=getattr(args, "project_id", None),
+        session_id=getattr(args, "session_id", None),
+    )
     scope_filters = _scope_filters(user_id=user_id, project_id=project_id, session_id=session_id)
     remember_directive = parse_explicit_remember(question)
     if remember_directive and remember_directive.get("text"):
@@ -271,6 +273,21 @@ def _scope_filters(user_id: Optional[str], project_id: Optional[str], session_id
     return out
 
 
+def _resolve_scope(
+    user_id: Optional[object],
+    project_id: Optional[object],
+    session_id: Optional[object],
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    settings = load_settings()
+    default_user_id = normalize_identifier(settings.default_user_id, max_len=120) or None
+    default_project_id = normalize_identifier(settings.default_project_id, max_len=120) or None
+    default_session_id = normalize_identifier(settings.default_session_id, max_len=120) or None
+    resolved_user_id = normalize_identifier(user_id, max_len=120) or default_user_id
+    resolved_project_id = normalize_identifier(project_id, max_len=120) or default_project_id
+    resolved_session_id = normalize_identifier(session_id, max_len=120) or default_session_id
+    return resolved_user_id, resolved_project_id, resolved_session_id
+
+
 def main() -> int:
     configure_logging()
     settings = load_settings()
@@ -365,6 +382,11 @@ def main() -> int:
     elif args.cmd == "ask":
         cmd_ask(args)
     elif args.cmd == "memory-write":
+        user_id, project_id, session_id = _resolve_scope(
+            user_id=getattr(args, "user_id", None),
+            project_id=getattr(args, "project_id", None),
+            session_id=getattr(args, "session_id", None),
+        )
         source_refs = {}
         try:
             source_refs = json.loads(args.source_refs)
@@ -381,39 +403,54 @@ def main() -> int:
             expires_at=args.expires_at,
             pinned_until=args.pinned_until,
             publish_long_term=args.publish_long_term,
-            user_id=normalize_identifier(args.user_id, max_len=120) or None,
-            project_id=normalize_identifier(args.project_id, max_len=120) or None,
-            session_id=normalize_identifier(args.session_id, max_len=120) or None,
+            user_id=user_id,
+            project_id=project_id,
+            session_id=session_id,
         )
         print(f"memory_id={receipt['memory_id']} published={receipt['published']} error={receipt['error']}")
     elif args.cmd == "memory-recall":
+        user_id, project_id, session_id = _resolve_scope(
+            user_id=getattr(args, "user_id", None),
+            project_id=getattr(args, "project_id", None),
+            session_id=getattr(args, "session_id", None),
+        )
         results = recall_memory(
             query=args.query,
             limit=args.limit,
             memory_type=args.memory_type,
-            user_id=normalize_identifier(args.user_id, max_len=120) or None,
-            project_id=normalize_identifier(args.project_id, max_len=120) or None,
-            session_id=normalize_identifier(args.session_id, max_len=120) or None,
+            user_id=user_id,
+            project_id=project_id,
+            session_id=session_id,
             include_long_term=args.include_long_term,
         )
         for item in results:
             print(f"- {item['memory_id']} [{item['memory_type']}] {item['text']}")
     elif args.cmd == "memory-stats":
+        user_id, project_id, session_id = _resolve_scope(
+            user_id=getattr(args, "user_id", None),
+            project_id=getattr(args, "project_id", None),
+            session_id=getattr(args, "session_id", None),
+        )
         stats = get_memory_stats(
-            user_id=normalize_identifier(args.user_id, max_len=120) or None,
-            project_id=normalize_identifier(args.project_id, max_len=120) or None,
-            session_id=normalize_identifier(args.session_id, max_len=120) or None,
+            user_id=user_id,
+            project_id=project_id,
+            session_id=session_id,
         )
         print(json.dumps(stats, ensure_ascii=True, sort_keys=True, indent=2))
     elif args.cmd == "memory-maintain":
+        user_id, project_id, session_id = _resolve_scope(
+            user_id=getattr(args, "user_id", None),
+            project_id=getattr(args, "project_id", None),
+            session_id=getattr(args, "session_id", None),
+        )
         if bool(args.enqueue):
             job_id = enqueue_job("memory_maintain", "io", "memory:maintenance", "latest")
             print(f"Enqueued memory maintenance job: {job_id}")
         else:
             output = run_memory_maintenance(
-                user_id=normalize_identifier(args.user_id, max_len=120) or None,
-                project_id=normalize_identifier(args.project_id, max_len=120) or None,
-                session_id=normalize_identifier(args.session_id, max_len=120) or None,
+                user_id=user_id,
+                project_id=project_id,
+                session_id=session_id,
             )
             print(json.dumps(output, ensure_ascii=True, sort_keys=True, indent=2))
     elif args.cmd == "context-handoff":

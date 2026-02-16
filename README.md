@@ -88,6 +88,8 @@ python -m app.cli.main worker --lane io
 python -m app.cli.main ask "<question>"
 python -m app.cli.main ask "<question>" --user-id user-1 --project-id aurora --session-id chat-42
 ```
+Om scope saknas i kommandot används default från `.env` (om satta):
+`AURORA_DEFAULT_USER_ID`, `AURORA_DEFAULT_PROJECT_ID`, `AURORA_DEFAULT_SESSION_ID`.
 Swarm-flödet har fallback om modelltjänsten fallerar tillfälligt (route/analyze/synthesize), och Ollama-anrop kör retry/backoff via:
 `OLLAMA_REQUEST_TIMEOUT_SECONDS`, `OLLAMA_REQUEST_RETRIES`, `OLLAMA_REQUEST_BACKOFF_SECONDS`.
 Input till `ask` normaliseras också (trim + whitespace-normalisering + maxlängd), och tom fråga avvisas.
@@ -208,6 +210,7 @@ python -m app.cli.main mcp-server
 ```
 Tools: ingest_url, ingest_doc, ingest_youtube, ask, memory_write, memory_recall, memory_stats, memory_maintain, status.
 `ask`, `memory_write`, `memory_recall`, `memory_stats` och `memory_maintain` accepterar även `user_id`, `project_id`, `session_id` för scope-isolering.
+Om scope saknas i MCP-arguments används samma `.env` defaults (`AURORA_DEFAULT_*`).
 
 ## Codex Desktop as UI
 Codex Desktop kan vara ditt primära UI mot Aurora via MCP.

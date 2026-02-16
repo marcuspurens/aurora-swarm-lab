@@ -379,3 +379,46 @@ def test_mcp_ask_passes_scope_to_retrieve_and_feedback(tmp_path, monkeypatch):
     assert captured["filters"]["project_id"] == "proj-7"
     assert captured["filters"]["session_id"] == "session-7"
     assert captured["feedback"]["session_id"] == "session-7"
+
+
+def test_mcp_ask_uses_default_scope_from_env(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    monkeypatch.setenv("AURORA_DEFAULT_USER_ID", "default-user")
+    monkeypatch.setenv("AURORA_DEFAULT_PROJECT_ID", "default-project")
+    monkeypatch.setenv("AURORA_DEFAULT_SESSION_ID", "default-session")
+    init_db()
+
+    captured = {}
+    monkeypatch.setattr(
+        server_main,
+        "route_question",
+        lambda q: RouteOutput(intent="ask", filters={}, retrieve_top_k=2, need_strong_model=False, reason="ok"),
+    )
+
+    def fake_retrieve(question, limit=10, filters=None):
+        captured["filters"] = dict(filters or {})
+        return [{"doc_id": "d1", "segment_id": "s1", "text_snippet": "a"}]
+
+    monkeypatch.setattr(server_main, "retrieve", fake_retrieve)
+    monkeypatch.setattr(server_main, "graph_retrieve", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(server_main, "record_turn_and_refresh", lambda **_kwargs: None)
+    monkeypatch.setattr(server_main, "synthesize", lambda *_args, **_kwargs: SynthesizeOutput(answer_text="ok", citations=[]))
+    monkeypatch.setattr(server_main, "record_retrieval_feedback", lambda **kwargs: captured.setdefault("feedback", kwargs))
+
+    resp = server_main.handle_request(
+        {
+            "method": "tools/call",
+            "params": {
+                "name": "ask",
+                "arguments": {
+                    "question": "What's new?",
+                },
+            },
+        }
+    )
+    assert resp["answer_text"] == "ok"
+    assert captured["filters"]["user_id"] == "default-user"
+    assert captured["filters"]["project_id"] == "default-project"
+    assert captured["filters"]["session_id"] == "default-session"
+    assert captured["feedback"]["session_id"] == "default-session"

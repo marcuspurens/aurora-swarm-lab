@@ -45,6 +45,9 @@ class Settings:
     context_handoff_pre_compaction_turn_count: int
     run_log_max_json_chars: int
     run_log_max_error_chars: int
+    default_user_id: str | None
+    default_project_id: str | None
+    default_session_id: str | None
     egress_pii_policy: str
     egress_pii_token_salt: str
     egress_pii_apply_to_ollama: bool
@@ -122,6 +125,9 @@ def load_settings() -> Settings:
         ),
         run_log_max_json_chars=max(400, int(os.getenv("RUN_LOG_MAX_JSON_CHARS", "20000"))),
         run_log_max_error_chars=max(200, int(os.getenv("RUN_LOG_MAX_ERROR_CHARS", "4000"))),
+        default_user_id=os.getenv("AURORA_DEFAULT_USER_ID"),
+        default_project_id=os.getenv("AURORA_DEFAULT_PROJECT_ID"),
+        default_session_id=os.getenv("AURORA_DEFAULT_SESSION_ID"),
         egress_pii_policy=os.getenv("EGRESS_PII_POLICY", "off").strip().lower() or "off",
         egress_pii_token_salt=os.getenv("EGRESS_PII_TOKEN_SALT", ""),
         egress_pii_apply_to_ollama=_getenv_bool("EGRESS_PII_APPLY_TO_OLLAMA", True),
