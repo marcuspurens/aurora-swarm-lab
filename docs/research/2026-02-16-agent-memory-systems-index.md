@@ -10,6 +10,8 @@ Scope: Indexera och jämföra centrala källor för agent-minne och mappa dem mo
   - https://docs.cloud.google.com/architecture/choose-agentic-ai-architecture-components
 - Google ADK memory blog:
   - https://cloud.google.com/blog/topics/developers-practitioners/remember-this-agent-state-and-memory-with-adk/
+- Google/Kaggle whitepaper (Context Engineering: Sessions & Memory):
+  - https://www.kaggle.com/whitepaper-context-engineering-sessions-and-memory
 - Anthropic Claude Code memory:
   - https://docs.anthropic.com/en/docs/claude-code/memory
 - RMM paper (ACL 2025):
@@ -75,10 +77,24 @@ Relevans för Aurora:
 - Matchar pipeline-tänk för minneskvalitet.
 - Ger stöd för framtida "reflection jobs" utanför ask-pathen.
 
+### 7) Google/Kaggle: Context Engineering (Sessions & Memory)
+Fokus:
+- Tydlig uppdelning mellan session (kortsiktig, turn-baserad state) och memory (långsiktig, konsoliderad kunskap).
+- Scope-modell för minnen (user/session/application) med stark isolering per användare.
+- Konsolideringsoperationer som CREATE/UPDATE/DELETE/INVALIDATE.
+- Memory relevance decay/forgetting (TTL/pruning) och asynkron memory-generation efter svar.
+
+Relevans för Aurora:
+- Stärker nuvarande riktning med scope-isolering + consolidation/supersede + feedback-loop.
+- Matchar behov av fortsatt memory hygiene (decay + periodic cleanup jobs).
+- Pekar på nästa säkerhetsnivå: tydligare provenance/guardrails mot memory poisoning.
+
 ## Comparison (kort)
 
 Google-linjen:
 - Tyngdpunkt på extraction + consolidation + scope i systemdesign.
+- Whitepaper-linjen (Sessions & Memory): operationaliserar samma tema med livscykel-perspektiv
+  (fetch -> prepare -> invoke -> upload) och tydlig separation mellan hot path (session) och background path (memory).
 
 Anthropic-linjen:
 - Tyngdpunkt på deterministisk, hierarkisk kontext/memory-laddning.
@@ -93,11 +109,15 @@ Redan implementerat:
 - `memory_kind`-klassning.
 - Pre-compaction och konflikt-supersede.
 - Retrospective retrieval feedback loop (RMM-liknande).
+- Scope-isolering (user/project/session) i write/recall/retrieve.
+- Feedback decay + cap per query-cluster.
+- Revision trail för consolidation/supersede.
+- `memory-stats` för observability i CLI + MCP.
 
 Högst prioriterade fortsättningar:
-1. Scope-isolering som first-class (user/project/session).
-2. Memory revision trail (varför minnet ändrades, av vad).
-3. Offline reflection/consolidation-jobb för periodisk minneshygien.
+1. Offline reflection/consolidation-jobb för periodisk minneshygien (whitepaper: background memory lifecycle).
+2. Policy för forgetting/pruning på minnesnivå (inte bara feedback-signaler), inkl. TTL-strategier per memory_kind.
+3. Hardening: provenance + safeguards mot memory poisoning och känslig data-överföring mellan scopes.
 
 ## Notes
 - Denna sida är avsedd som index-notering. När en källa leder till ett konkret beslut, skapa ADR i `docs/decisions/`.

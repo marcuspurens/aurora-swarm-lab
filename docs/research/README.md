@@ -34,7 +34,7 @@ Scope: <vad noten täcker>
 ## Index
 | Note | Fokus |
 |---|---|
-| `docs/research/2026-02-16-agent-memory-systems-index.md` | Google Memory Bank, Google agent memory architecture, ADK memory, Claude Code memory, RMM, Generative Agents |
+| `docs/research/2026-02-16-agent-memory-systems-index.md` | Google Memory Bank, Google agent memory architecture, ADK memory, Kaggle Sessions+Memory whitepaper, Claude Code memory, RMM, Generative Agents |
 | `docs/research/anthropic-ralph-loop.md` | Ralph-loop inspiration och loop design |
 | `docs/research/claude-planner-kit.md` | Planner/Implementor-loop och guardrails |
 | `docs/research/ralph-agent-loop.md` | Agent loop med PRD + quality gates |
