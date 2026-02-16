@@ -209,6 +209,24 @@ python -m app.cli.main mcp-server
 Tools: ingest_url, ingest_doc, ingest_youtube, ask, memory_write, memory_recall, memory_stats, memory_maintain, status.
 `ask`, `memory_write`, `memory_recall`, `memory_stats` och `memory_maintain` accepterar även `user_id`, `project_id`, `session_id` för scope-isolering.
 
+## Codex Desktop as UI
+Codex Desktop kan vara ditt primära UI mot Aurora via MCP.
+
+1) Registrera Aurora MCP-server i Codex:
+```
+codex mcp add aurora -- /Users/mpmac/aurora-swarm-lab/scripts/aurora_mcp_server.sh
+```
+2) Verifiera:
+```
+codex mcp list
+codex mcp get aurora --json
+```
+3) Starta om Codex Desktop.
+4) Använd Aurora-tools i Codex (`ask`, `memory_write`, `memory_recall`, `memory_stats`), eller öppna MCP-resursen `ui://intake`.
+
+Helper-script för Codex MCP-start finns i:
+`scripts/aurora_mcp_server.sh`
+
 ## Phase G (P6): Voice Gallery MCP UI (MVP)
 1) Starta MCP-server:
 ```
@@ -246,6 +264,27 @@ python -m app.cli.main obsidian-watch
 - LaunchAgent: `~/Library/LaunchAgents/com.aurora.workers.plist`
 - Script: `scripts/aurora_workers.sh`
 - Logs: `~/Library/Logs/aurora-workers.log`
+
+## Mobile-first usage (iPhone/Android)
+Snabbaste stabila vägen är mobil -> SSH -> Aurora CLI.
+
+1) Se till att maskinen där Aurora kör är nåbar från mobilen (t.ex. Tailscale + SSH).
+2) Använd wrappern:
+```
+scripts/mobile_aurora.sh ask "Vad är planen idag?"
+scripts/mobile_aurora.sh remember "Jag intervjuar Anna kl 14"
+scripts/mobile_aurora.sh todo-add "Skicka följdfrågor till redaktionen"
+scripts/mobile_aurora.sh todo-list
+```
+3) Sätt gärna mobil-scope i `.env`:
+```
+AURORA_MOBILE_USER_ID=marcus
+AURORA_MOBILE_PROJECT_ID=journal
+AURORA_MOBILE_SESSION_ID=mobile-chat
+AURORA_MOBILE_TODO_LIMIT=12
+```
+
+För röst på mobilen: använd diktat i tangentbordet (eller iOS Shortcuts "Dictate Text") och skicka texten till `scripts/mobile_aurora.sh`.
 
 ## Phase G (P6): Voiceprint + diarization (MVP)
 1) Starta workers
