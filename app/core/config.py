@@ -28,6 +28,8 @@ class Settings:
     embeddings_enabled: bool
     memory_enabled: bool
     memory_retrieve_limit: int
+    memory_maintenance_feedback_retention_days: int
+    memory_maintenance_max_delete_per_run: int
     retrieval_feedback_enabled: bool
     retrieval_feedback_history_limit: int
     retrieval_feedback_signal_limit: int
@@ -91,6 +93,10 @@ def load_settings() -> Settings:
         embeddings_enabled=_getenv_bool("EMBEDDINGS_ENABLED", True),
         memory_enabled=_getenv_bool("MEMORY_ENABLED", True),
         memory_retrieve_limit=int(os.getenv("MEMORY_RETRIEVE_LIMIT", "4")),
+        memory_maintenance_feedback_retention_days=max(
+            1, int(os.getenv("MEMORY_MAINTENANCE_FEEDBACK_RETENTION_DAYS", "30"))
+        ),
+        memory_maintenance_max_delete_per_run=max(10, int(os.getenv("MEMORY_MAINTENANCE_MAX_DELETE_PER_RUN", "250"))),
         retrieval_feedback_enabled=_getenv_bool("RETRIEVAL_FEEDBACK_ENABLED", True),
         retrieval_feedback_history_limit=max(10, int(os.getenv("RETRIEVAL_FEEDBACK_HISTORY_LIMIT", "80"))),
         retrieval_feedback_signal_limit=max(3, int(os.getenv("RETRIEVAL_FEEDBACK_SIGNAL_LIMIT", "8"))),

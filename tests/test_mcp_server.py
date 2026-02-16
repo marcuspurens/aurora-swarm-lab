@@ -15,11 +15,13 @@ def test_mcp_tools_list(tmp_path, monkeypatch):
     assert "tools" in resp
     ask_tool = next((tool for tool in resp["tools"] if tool.get("name") == "ask"), {})
     memory_stats_tool = next((tool for tool in resp["tools"] if tool.get("name") == "memory_stats"), {})
+    memory_maintain_tool = next((tool for tool in resp["tools"] if tool.get("name") == "memory_maintain"), {})
     properties = ask_tool.get("input_schema", {}).get("properties", {})
     assert "session_id" in properties
     assert "user_id" in properties
     assert "project_id" in properties
     assert memory_stats_tool.get("name") == "memory_stats"
+    assert memory_maintain_tool.get("name") == "memory_maintain"
     assert properties["question"]["minLength"] == 1
     assert properties["question"]["maxLength"] == 2400
     assert properties["session_id"]["maxLength"] == 120
@@ -79,6 +81,56 @@ def test_mcp_memory_stats(tmp_path, monkeypatch):
     assert stats_resp["totals"]["memory_items"] == 1
     assert "supersede_rate" in stats_resp["supersede"]
     assert "hit_rate" in stats_resp["retrieval_feedback"]
+
+
+def test_mcp_memory_maintain(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    init_db()
+
+    server_main.handle_request(
+        {
+            "method": "tools/call",
+            "params": {
+                "name": "memory_write",
+                "arguments": {
+                    "type": "working",
+                    "text": "expired",
+                    "expires_at": "2000-01-01T00:00:00+00:00",
+                    "user_id": "user-1",
+                    "project_id": "proj-1",
+                    "session_id": "sess-1",
+                },
+            },
+        }
+    )
+
+    maintain_resp = server_main.handle_request(
+        {
+            "method": "tools/call",
+            "params": {
+                "name": "memory_maintain",
+                "arguments": {"user_id": "user-1", "project_id": "proj-1", "session_id": "sess-1"},
+            },
+        }
+    )
+    assert maintain_resp["enqueued"] is False
+    assert int(maintain_resp["deleted_total"]) == 1
+
+
+def test_mcp_memory_maintain_enqueue(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    init_db()
+
+    resp = server_main.handle_request(
+        {
+            "method": "tools/call",
+            "params": {"name": "memory_maintain", "arguments": {"enqueue": True}},
+        }
+    )
+    assert resp["enqueued"] is True
+    assert resp["job_id"]
 
 
 def test_mcp_ingest_doc(tmp_path, monkeypatch):

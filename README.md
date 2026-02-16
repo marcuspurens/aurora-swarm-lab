@@ -114,6 +114,12 @@ python -m app.cli.main memory-recall --query "Scoped note" --type working --user
 python -m app.cli.main memory-stats
 python -m app.cli.main memory-stats --user-id user-1 --project-id aurora --session-id chat-42
 ```
+4) Kör memory-maintenance (lifecycle hygiene)
+```
+python -m app.cli.main memory-maintain
+python -m app.cli.main memory-maintain --user-id user-1 --project-id aurora --session-id chat-42
+python -m app.cli.main memory-maintain --enqueue
+```
 Memory retrieval rankas nu med textmatch, recency och policyfält (importance/confidence/access/expiry/pin).
 Ask-flödet checkpointar nu också automatiskt turns till session-minne och skriver en löpande handoff i `data/artifacts/context/auto_handoff.md`.
 För ny chatt-resume kan du skicka `--session-id` i CLI (eller `session_id` i MCP `ask`) så injiceras senaste `auto_handoff` automatiskt på första turn i sessionen.
@@ -194,8 +200,8 @@ Starta MCP-server över stdio:
 ```
 python -m app.cli.main mcp-server
 ```
-Tools: ingest_url, ingest_doc, ingest_youtube, ask, memory_write, memory_recall, memory_stats, status.
-`ask`, `memory_write`, `memory_recall` och `memory_stats` accepterar även `user_id`, `project_id`, `session_id` för scope-isolering.
+Tools: ingest_url, ingest_doc, ingest_youtube, ask, memory_write, memory_recall, memory_stats, memory_maintain, status.
+`ask`, `memory_write`, `memory_recall`, `memory_stats` och `memory_maintain` accepterar även `user_id`, `project_id`, `session_id` för scope-isolering.
 
 ## Phase G (P6): Voice Gallery MCP UI (MVP)
 1) Starta MCP-server:

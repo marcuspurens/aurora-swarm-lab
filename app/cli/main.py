@@ -24,6 +24,8 @@ from app.modules.graph.graph_retrieve import retrieve as graph_retrieve
 from app.modules.memory.memory_write import write_memory
 from app.modules.memory.memory_recall import recall as recall_memory
 from app.modules.memory.memory_stats import get_memory_stats
+from app.modules.memory.maintenance import handle_job as handle_memory_maintain_job
+from app.modules.memory.maintenance import run_memory_maintenance
 from app.modules.memory.router import parse_explicit_remember, route_memory
 from app.modules.memory.retrieval_feedback import record_retrieval_feedback
 from app.modules.memory.context_handoff import (
@@ -126,6 +128,7 @@ def cmd_worker(args) -> None:
         "voiceprint_enroll": handle_voiceprint_enroll,
         "voiceprint_match": handle_voiceprint_match,
         "voiceprint_review": handle_voiceprint_review,
+        "memory_maintain": handle_memory_maintain_job,
     }
     run_worker(args.lane, handlers)
 
@@ -328,6 +331,12 @@ def main() -> int:
     p_mem_stats.add_argument("--project-id", default=None)
     p_mem_stats.add_argument("--session-id", default=None)
 
+    p_mem_maintain = sub.add_parser("memory-maintain")
+    p_mem_maintain.add_argument("--user-id", default=None)
+    p_mem_maintain.add_argument("--project-id", default=None)
+    p_mem_maintain.add_argument("--session-id", default=None)
+    p_mem_maintain.add_argument("--enqueue", action="store_true")
+
     sub.add_parser("context-handoff")
 
     sub.add_parser("obsidian-watch")
@@ -396,6 +405,17 @@ def main() -> int:
             session_id=normalize_identifier(args.session_id, max_len=120) or None,
         )
         print(json.dumps(stats, ensure_ascii=True, sort_keys=True, indent=2))
+    elif args.cmd == "memory-maintain":
+        if bool(args.enqueue):
+            job_id = enqueue_job("memory_maintain", "io", "memory:maintenance", "latest")
+            print(f"Enqueued memory maintenance job: {job_id}")
+        else:
+            output = run_memory_maintenance(
+                user_id=normalize_identifier(args.user_id, max_len=120) or None,
+                project_id=normalize_identifier(args.project_id, max_len=120) or None,
+                session_id=normalize_identifier(args.session_id, max_len=120) or None,
+            )
+            print(json.dumps(output, ensure_ascii=True, sort_keys=True, indent=2))
     elif args.cmd == "context-handoff":
         handoff = get_handoff()
         print(handoff["text"])

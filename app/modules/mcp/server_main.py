@@ -22,6 +22,7 @@ from app.queue.db import init_db, get_conn
 from app.modules.memory.memory_write import write_memory
 from app.modules.memory.memory_recall import recall as recall_memory
 from app.modules.memory.memory_stats import get_memory_stats
+from app.modules.memory.maintenance import run_memory_maintenance
 from app.modules.memory.router import parse_explicit_remember, route_memory
 from app.modules.memory.retrieval_feedback import record_retrieval_feedback
 from app.modules.memory.context_handoff import (
@@ -113,6 +114,19 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "user_id": {"type": "string", "minLength": 1, "maxLength": 120},
+                "project_id": {"type": "string", "minLength": 1, "maxLength": 120},
+                "session_id": {"type": "string", "minLength": 1, "maxLength": 120},
+            },
+        },
+    },
+    {
+        "name": "memory_maintain",
+        "description": "Run or enqueue memory lifecycle maintenance",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "enqueue": {"type": "boolean"},
                 "user_id": {"type": "string", "minLength": 1, "maxLength": 120},
                 "project_id": {"type": "string", "minLength": 1, "maxLength": 120},
                 "session_id": {"type": "string", "minLength": 1, "maxLength": 120},
@@ -370,6 +384,20 @@ def _tool_memory_stats(args: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
+def _tool_memory_maintain(args: Dict[str, Any]) -> Dict[str, Any]:
+    scope = _parse_scope_arguments(args, error_prefix="memory_maintain")
+    if _parse_bool(args.get("enqueue", False)):
+        job_id = enqueue_job("memory_maintain", "io", "memory:maintenance", "latest")
+        return {"enqueued": True, "job_id": job_id}
+    output = run_memory_maintenance(
+        user_id=scope.get("user_id"),
+        project_id=scope.get("project_id"),
+        session_id=scope.get("session_id"),
+    )
+    output["enqueued"] = False
+    return output
+
+
 def _tool_voice_gallery_list(_args: Dict[str, Any]) -> List[Dict[str, Any]]:
     return list_voiceprints()
 
@@ -447,6 +475,8 @@ def handle_request(req: Dict[str, Any]) -> Dict[str, Any]:
             return _tool_memory_recall(args)
         if name == "memory_stats":
             return _tool_memory_stats(args)
+        if name == "memory_maintain":
+            return _tool_memory_maintain(args)
         if name == "context_handoff":
             return _tool_context_handoff(args)
         if name == "status":
