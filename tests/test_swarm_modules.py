@@ -1,6 +1,8 @@
+import json
+
 from app.modules.swarm import route, analyze, synthesize
 from app.core.models import RouteOutput, AnalyzeOutput, SynthesizeOutput, SynthesizeCitation
-from app.queue.db import init_db
+from app.queue.db import get_conn, init_db
 
 
 def test_route_question_uses_generate_json(monkeypatch, tmp_path):
@@ -162,3 +164,39 @@ def test_synthesize_fallback_on_model_error(monkeypatch, tmp_path):
     assert "Fallback answer" in out.answer_text
     assert out.citations
     assert out.citations[0].doc_id == "doc-1"
+
+
+def test_synthesize_logs_egress_policy_reason_codes(monkeypatch, tmp_path):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    monkeypatch.setenv("EGRESS_PII_POLICY", "redact")
+    monkeypatch.setenv("EGRESS_PII_APPLY_TO_OLLAMA", "1")
+    init_db()
+
+    captured = {}
+
+    def fake_generate(prompt, model, schema):
+        captured["prompt"] = prompt
+        return SynthesizeOutput(answer_text="ok", citations=[SynthesizeCitation(doc_id="d", segment_id="s")])
+
+    monkeypatch.setattr(synthesize, "generate_json", fake_generate)
+    out = synthesize.synthesize(
+        "reach me at jane@example.com",
+        [{"doc_id": "doc-1", "segment_id": "seg-1", "text_snippet": "phone +46 70 123 45 67"}],
+        analysis=None,
+        use_strong_model=False,
+    )
+    assert out.answer_text == "ok"
+    assert "[REDACTED_EMAIL]" in captured["prompt"]
+    assert "[REDACTED_PHONE]" in captured["prompt"]
+
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT input_json FROM run_log WHERE component = ? AND input_json LIKE ? ORDER BY created_at DESC LIMIT 1",
+            ("swarm_synthesize", "%egress_policy_mode%"),
+        )
+        row = cur.fetchone()
+    payload = json.loads(str(row[0]))
+    assert payload["egress_policy_mode"] == "redact"
+    assert any(code.startswith("transform.redact.") for code in payload["egress_policy_reason_codes"])

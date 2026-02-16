@@ -93,6 +93,12 @@ Swarm-flödet har fallback om modelltjänsten fallerar tillfälligt (route/analy
 Input till `ask` normaliseras också (trim + whitespace-normalisering + maxlängd), och tom fråga avvisas.
 Route-output saneras dessutom innan retrieval (whitelistade filter + clamp av `retrieve_top_k`).
 `run_log` skyddas mot stora payloads via `RUN_LOG_MAX_JSON_CHARS` och `RUN_LOG_MAX_ERROR_CHARS`.
+Valbart outbound PII-filter för LLM-prompts styrs via:
+`EGRESS_PII_POLICY=off|pseudonymize|redact`,
+`EGRESS_PII_APPLY_TO_OLLAMA`,
+`EGRESS_PII_APPLY_TO_CHATGPT`,
+`EGRESS_PII_TOKEN_SALT` (för stabil pseudonymiseringstoken).
+`run_log` för route/analyze/synthesize innehåller nu `egress_policy_reason_codes` per request.
 
 ## Phase D (P3-14): Memory (MVP)
 1) Skriv minne

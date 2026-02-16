@@ -10,14 +10,16 @@ from typing import List, Type, TypeVar
 from pydantic import BaseModel, ValidationError
 
 from app.core.config import load_settings
+from app.modules.privacy.egress_policy import apply_egress_policy
 
 T = TypeVar("T", bound=BaseModel)
 
 
 def generate(prompt: str, model: str) -> str:
     settings = load_settings()
+    decision = apply_egress_policy(prompt, provider="ollama")
     url = f"{settings.ollama_base_url}/api/generate"
-    payload = {"model": model, "prompt": prompt, "stream": False, "keep_alive": -1}
+    payload = {"model": model, "prompt": decision.text, "stream": False, "keep_alive": -1}
     data = _post_json(
         url=url,
         payload=payload,

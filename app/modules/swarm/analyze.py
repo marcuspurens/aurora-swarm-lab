@@ -8,6 +8,7 @@ from app.clients.ollama_client import generate_json
 from app.core.config import load_settings
 from app.core.models import AnalyzeOutput
 from app.core.textnorm import normalize_user_text
+from app.modules.privacy.egress_policy import apply_egress_policy
 from app.modules.swarm.prompt_format import serialize_for_prompt
 from app.queue.logs import log_run
 
@@ -23,6 +24,7 @@ def analyze(question: str, evidence: List[Dict]) -> AnalyzeOutput:
         f"Question:\n{question}\n\n"
         f"Evidence:\n{evidence_json}\n"
     )
+    egress = apply_egress_policy(prompt, provider="ollama")
     run_id = log_run(
         lane="nemotron",
         component="swarm_analyze",
@@ -35,11 +37,15 @@ def analyze(question: str, evidence: List[Dict]) -> AnalyzeOutput:
             "evidence_prompt_chars_raw": evidence_meta.get("chars_raw"),
             "evidence_prompt_chars": evidence_meta.get("chars_final"),
             "evidence_prompt_truncated": evidence_meta.get("truncated"),
+            "egress_policy_mode": egress.effective_mode,
+            "egress_policy_reason_codes": egress.reason_codes,
+            "egress_policy_transformed": egress.transformed,
+            "egress_policy_transform_count": egress.transform_count,
         },
         model=settings.ollama_model_strong,
     )
     try:
-        output = generate_json(prompt, settings.ollama_model_strong, AnalyzeOutput)
+        output = generate_json(egress.text, settings.ollama_model_strong, AnalyzeOutput)
         log_run(lane="nemotron", component="swarm_analyze", input_json={"run_id": run_id}, output_json=output.model_dump())
         return output
     except Exception as exc:

@@ -45,6 +45,10 @@ class Settings:
     context_handoff_pre_compaction_turn_count: int
     run_log_max_json_chars: int
     run_log_max_error_chars: int
+    egress_pii_policy: str
+    egress_pii_token_salt: str
+    egress_pii_apply_to_ollama: bool
+    egress_pii_apply_to_chatgpt: bool
     chatgpt_api_enabled: bool
     chatgpt_model: str | None
     chatgpt_api_key: str | None
@@ -118,6 +122,10 @@ def load_settings() -> Settings:
         ),
         run_log_max_json_chars=max(400, int(os.getenv("RUN_LOG_MAX_JSON_CHARS", "20000"))),
         run_log_max_error_chars=max(200, int(os.getenv("RUN_LOG_MAX_ERROR_CHARS", "4000"))),
+        egress_pii_policy=os.getenv("EGRESS_PII_POLICY", "off").strip().lower() or "off",
+        egress_pii_token_salt=os.getenv("EGRESS_PII_TOKEN_SALT", ""),
+        egress_pii_apply_to_ollama=_getenv_bool("EGRESS_PII_APPLY_TO_OLLAMA", True),
+        egress_pii_apply_to_chatgpt=_getenv_bool("EGRESS_PII_APPLY_TO_CHATGPT", True),
         chatgpt_api_enabled=_getenv_bool("CHATGPT_API_ENABLED", False),
         chatgpt_model=os.getenv("CHATGPT_MODEL"),
         chatgpt_api_key=os.getenv("CHATGPT_API_KEY"),

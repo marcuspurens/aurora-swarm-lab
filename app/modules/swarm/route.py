@@ -8,6 +8,7 @@ from app.core.textnorm import normalize_identifier, normalize_user_text
 from app.clients.ollama_client import generate_json
 from app.core.config import load_settings
 from app.core.models import RouteOutput
+from app.modules.privacy.egress_policy import apply_egress_policy
 from app.queue.logs import log_run
 
 
@@ -31,14 +32,23 @@ def route_question(question: str) -> RouteOutput:
         "question_truncated": len(question) < len(raw_question),
     }
     settings = load_settings()
+    prompt = _prompt(question)
+    egress = apply_egress_policy(prompt, provider="ollama")
     run_id = log_run(
         lane="oss20b",
         component="swarm_route",
-        input_json={"question": question, **norm_meta},
+        input_json={
+            "question": question,
+            "egress_policy_mode": egress.effective_mode,
+            "egress_policy_reason_codes": egress.reason_codes,
+            "egress_policy_transformed": egress.transformed,
+            "egress_policy_transform_count": egress.transform_count,
+            **norm_meta,
+        },
         model=settings.ollama_model_fast,
     )
     try:
-        output = _sanitize_route_output(generate_json(_prompt(question), settings.ollama_model_fast, RouteOutput))
+        output = _sanitize_route_output(generate_json(egress.text, settings.ollama_model_fast, RouteOutput))
         log_run(lane="oss20b", component="swarm_route", input_json={"run_id": run_id}, output_json=output.model_dump())
         return output
     except Exception as exc:

@@ -6,6 +6,7 @@ import json
 import urllib.request
 
 from app.core.config import load_settings
+from app.modules.privacy.egress_policy import apply_egress_policy
 
 
 def call_chatgpt(prompt: str) -> str:
@@ -16,9 +17,10 @@ def call_chatgpt(prompt: str) -> str:
         raise RuntimeError("CHATGPT_API_KEY not set")
 
     url = "https://api.openai.com/v1/chat/completions"
+    decision = apply_egress_policy(prompt, provider="chatgpt")
     payload = {
         "model": settings.chatgpt_model or "gpt-4o-mini",
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [{"role": "user", "content": decision.text}],
     }
     req = urllib.request.Request(
         url,

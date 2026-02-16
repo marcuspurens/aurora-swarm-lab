@@ -8,6 +8,7 @@ from app.clients.ollama_client import generate_json
 from app.core.config import load_settings
 from app.core.models import SynthesizeOutput, SynthesizeCitation, AnalyzeOutput
 from app.core.textnorm import normalize_user_text
+from app.modules.privacy.egress_policy import apply_egress_policy
 from app.modules.swarm.prompt_format import serialize_for_prompt
 from app.queue.logs import log_run
 
@@ -37,6 +38,7 @@ def synthesize(
         f"Evidence:\n{evidence_json}\n\n"
         f"Analysis:\n{analysis_json}\n"
     )
+    egress = apply_egress_policy(prompt, provider="ollama")
     run_id = log_run(
         lane="nemotron" if use_strong_model else "oss20b",
         component="swarm_synthesize",
@@ -53,11 +55,15 @@ def synthesize(
             "analysis_prompt_chars": analysis_meta.get("chars_final"),
             "analysis_prompt_truncated": analysis_meta.get("truncated"),
             "use_strong_model": use_strong_model,
+            "egress_policy_mode": egress.effective_mode,
+            "egress_policy_reason_codes": egress.reason_codes,
+            "egress_policy_transformed": egress.transformed,
+            "egress_policy_transform_count": egress.transform_count,
         },
         model=model,
     )
     try:
-        output = generate_json(prompt, model, SynthesizeOutput)
+        output = generate_json(egress.text, model, SynthesizeOutput)
         log_run(
             lane="nemotron" if use_strong_model else "oss20b",
             component="swarm_synthesize",
