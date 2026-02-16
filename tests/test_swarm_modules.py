@@ -44,6 +44,8 @@ def test_route_question_sanitizes_route_output(monkeypatch, tmp_path):
                 "topics": ["finance", "finance", " "],
                 "entities": [" ACME  ", ""],
                 "source_type": "report",
+                "memory_type": "working",
+                "memory_kind": "procedural",
                 "date_from": "2026-02-01",
                 "date_to": "bad-date",
                 "unknown": "drop-me",
@@ -60,8 +62,23 @@ def test_route_question_sanitizes_route_output(monkeypatch, tmp_path):
         "topics": ["finance"],
         "entities": ["ACME"],
         "source_type": "report",
+        "memory_type": "working",
+        "memory_kind": "procedural",
         "date_from": "2026-02-01",
     }
+
+
+def test_route_question_drops_invalid_memory_kind(monkeypatch, tmp_path):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    init_db()
+
+    def fake_generate(prompt, model, schema):
+        return RouteOutput(intent="ask", filters={"memory_kind": "unknown_kind"}, retrieve_top_k=3, need_strong_model=False, reason="ok")
+
+    monkeypatch.setattr(route, "generate_json", fake_generate)
+    out = route.route_question("hello")
+    assert "memory_kind" not in out.filters
 
 
 def test_analyze(monkeypatch, tmp_path):

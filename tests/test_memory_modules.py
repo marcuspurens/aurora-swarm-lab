@@ -76,3 +76,26 @@ def test_memory_write_supersedes_conflicting_slot(tmp_path, monkeypatch):
     ids = {item["memory_id"] for item in results}
     assert second["memory_id"] in ids
     assert first["memory_id"] not in ids
+
+
+def test_memory_recall_filters_by_memory_kind(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    init_db()
+
+    memory_write.write_memory(
+        memory_type="working",
+        memory_kind="procedural",
+        text="How to run migration safely",
+        publish_long_term=False,
+    )
+    memory_write.write_memory(
+        memory_type="working",
+        memory_kind="semantic",
+        text="Migration policy and constraints",
+        publish_long_term=False,
+    )
+
+    results = memory_recall.recall("migration", limit=10, memory_type="working", memory_kind="procedural")
+    assert results
+    assert all(item.get("memory_kind") == "procedural" for item in results)

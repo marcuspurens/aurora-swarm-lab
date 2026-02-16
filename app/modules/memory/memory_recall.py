@@ -24,6 +24,7 @@ def recall(
     query: str,
     limit: int = 10,
     memory_type: Optional[str] = None,
+    memory_kind: Optional[str] = None,
     include_long_term: bool = False,
     client: Optional[SnowflakeClient] = None,
 ) -> List[Dict[str, object]]:
@@ -34,6 +35,9 @@ def recall(
     q_tokens = tokens(q)
     candidate_limit = max(limit * 5, 20)
     local = _query_local(q, memory_type=memory_type, limit=candidate_limit)
+    memory_kind = _normalize_memory_kind_filter(memory_kind)
+    if memory_kind:
+        local = [item for item in local if _memory_kind_matches(item, memory_kind)]
 
     ranked_local: List[Dict[str, object]] = []
     for item in local:
@@ -48,6 +52,8 @@ def recall(
 
     if include_long_term:
         remote = _query_long_term(q, limit=limit, client=client)
+        if memory_kind:
+            remote = [item for item in remote if _memory_kind_matches(item, memory_kind)]
         for item in remote:
             item["recall_score"] = _score_remote_item(item, q_tokens)
         selected_local.extend(remote)
@@ -254,3 +260,14 @@ def _json_loads(value: object) -> object:
         except Exception:
             return None
     return value
+
+
+def _normalize_memory_kind_filter(value: object) -> Optional[str]:
+    candidate = str(value or "").strip().lower()
+    if candidate in {"semantic", "episodic", "procedural"}:
+        return candidate
+    return None
+
+
+def _memory_kind_matches(item: Dict[str, object], memory_kind: str) -> bool:
+    return str(item.get("memory_kind") or "").strip().lower() == memory_kind

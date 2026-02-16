@@ -60,3 +60,36 @@ def test_retrieve_uses_context_handoff(tmp_path, monkeypatch):
 
     results = retrieve("status what are we working on next", limit=5, client=FakeEmptyClient())
     assert any(r.get("doc_id") == "context:auto_handoff" for r in results)
+
+
+def test_retrieve_filters_memory_by_kind(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    monkeypatch.setenv("EMBEDDINGS_ENABLED", "0")
+    monkeypatch.setenv("MEMORY_ENABLED", "1")
+    monkeypatch.setenv("CONTEXT_HANDOFF_ENABLED", "0")
+    monkeypatch.setenv("MEMORY_RETRIEVE_LIMIT", "8")
+    init_db()
+
+    write_memory(
+        memory_type="working",
+        memory_kind="procedural",
+        text="runbook for deployment to prod",
+        publish_long_term=False,
+    )
+    write_memory(
+        memory_type="working",
+        memory_kind="semantic",
+        text="fact about deployment constraints",
+        publish_long_term=False,
+    )
+
+    results = retrieve(
+        "deployment",
+        limit=6,
+        filters={"memory_kind": "procedural"},
+        client=FakeEmptyClient(),
+    )
+    memory_rows = [row for row in results if str(row.get("doc_id", "")).startswith("memory:")]
+    assert memory_rows
+    assert all(row.get("memory_kind") == "procedural" for row in memory_rows)

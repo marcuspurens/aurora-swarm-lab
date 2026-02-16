@@ -98,10 +98,12 @@ def retrieve(
     if settings.memory_enabled:
         try:
             memory_type = filters.get("memory_type")
+            memory_kind = filters.get("memory_kind")
             memory_items = recall_memory(
                 query=query,
                 limit=max(1, min(settings.memory_retrieve_limit, limit)),
                 memory_type=str(memory_type) if memory_type else None,
+                memory_kind=str(memory_kind) if memory_kind else None,
                 include_long_term=True,
             )
             for item in memory_items:

@@ -15,7 +15,8 @@ def _prompt(question: str) -> str:
     return (
         "Return ONLY valid JSON with keys: intent, filters, retrieve_top_k, "
         "need_strong_model, reason. "
-        "filters may include: topics (array), entities (array), source_type, date_from, date_to. "
+        "filters may include: topics (array), entities (array), source_type, "
+        "memory_type, memory_kind, date_from, date_to. "
         "retrieve_top_k should be an integer. need_strong_model is boolean.\n\n"
         f"Question:\n{question}\n"
     )
@@ -70,6 +71,7 @@ def _sanitize_filters(filters: object) -> dict:
     entities = _sanitize_text_list(filters.get("entities"), max_items=10, max_len=80)
     source_type = normalize_user_text(filters.get("source_type"), max_len=40)
     memory_type = normalize_user_text(filters.get("memory_type"), max_len=20)
+    memory_kind = _sanitize_memory_kind(filters.get("memory_kind"))
     date_from = _sanitize_date(filters.get("date_from"))
     date_to = _sanitize_date(filters.get("date_to"))
 
@@ -81,6 +83,8 @@ def _sanitize_filters(filters: object) -> dict:
         out["source_type"] = source_type
     if memory_type:
         out["memory_type"] = memory_type
+    if memory_kind:
+        out["memory_kind"] = memory_kind
     if date_from:
         out["date_from"] = date_from
     if date_to:
@@ -123,3 +127,10 @@ def _clamp_int(value: object, default: int, low: int, high: int) -> int:
     if parsed > high:
         return high
     return parsed
+
+
+def _sanitize_memory_kind(value: object) -> str | None:
+    text = normalize_user_text(value, max_len=20).lower()
+    if text in {"semantic", "episodic", "procedural"}:
+        return text
+    return None
