@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from app.core.textnorm import normalize_user_text
+from app.core.textnorm import normalize_identifier, normalize_user_text
 from app.clients.ollama_client import generate_json
 from app.core.config import load_settings
 from app.core.models import RouteOutput
@@ -16,7 +16,7 @@ def _prompt(question: str) -> str:
         "Return ONLY valid JSON with keys: intent, filters, retrieve_top_k, "
         "need_strong_model, reason. "
         "filters may include: topics (array), entities (array), source_type, "
-        "memory_type, memory_kind, date_from, date_to. "
+        "memory_type, memory_kind, user_id, project_id, session_id, date_from, date_to. "
         "retrieve_top_k should be an integer. need_strong_model is boolean.\n\n"
         f"Question:\n{question}\n"
     )
@@ -72,6 +72,9 @@ def _sanitize_filters(filters: object) -> dict:
     source_type = normalize_user_text(filters.get("source_type"), max_len=40)
     memory_type = normalize_user_text(filters.get("memory_type"), max_len=20)
     memory_kind = _sanitize_memory_kind(filters.get("memory_kind"))
+    user_id = _sanitize_identifier(filters.get("user_id"))
+    project_id = _sanitize_identifier(filters.get("project_id"))
+    session_id = _sanitize_identifier(filters.get("session_id"))
     date_from = _sanitize_date(filters.get("date_from"))
     date_to = _sanitize_date(filters.get("date_to"))
 
@@ -85,6 +88,12 @@ def _sanitize_filters(filters: object) -> dict:
         out["memory_type"] = memory_type
     if memory_kind:
         out["memory_kind"] = memory_kind
+    if user_id:
+        out["user_id"] = user_id
+    if project_id:
+        out["project_id"] = project_id
+    if session_id:
+        out["session_id"] = session_id
     if date_from:
         out["date_from"] = date_from
     if date_to:
@@ -134,3 +143,8 @@ def _sanitize_memory_kind(value: object) -> str | None:
     if text in {"semantic", "episodic", "procedural"}:
         return text
     return None
+
+
+def _sanitize_identifier(value: object) -> str | None:
+    text = normalize_identifier(value, max_len=120)
+    return text or None

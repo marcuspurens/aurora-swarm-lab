@@ -100,11 +100,17 @@ def retrieve(
         try:
             memory_type = filters.get("memory_type")
             memory_kind = filters.get("memory_kind")
+            user_id = filters.get("user_id")
+            project_id = filters.get("project_id")
+            session_id = filters.get("session_id")
             memory_items = recall_memory(
                 query=query,
                 limit=max(1, min(settings.memory_retrieve_limit, limit)),
                 memory_type=str(memory_type) if memory_type else None,
                 memory_kind=str(memory_kind) if memory_kind else None,
+                user_id=str(user_id) if user_id else None,
+                project_id=str(project_id) if project_id else None,
+                session_id=str(session_id) if session_id else None,
                 include_long_term=True,
             )
             for item in memory_items:
@@ -131,7 +137,13 @@ def retrieve(
 
     deduped = _dedupe_by_best_score(candidates)
     try:
-        apply_retrieval_feedback(query, deduped)
+        apply_retrieval_feedback(
+            query,
+            deduped,
+            user_id=str(filters.get("user_id")) if filters.get("user_id") else None,
+            project_id=str(filters.get("project_id")) if filters.get("project_id") else None,
+            session_id=str(filters.get("session_id")) if filters.get("session_id") else None,
+        )
     except Exception:
         pass
     deduped.sort(key=lambda row: float(row.get("final_score", 0.0)), reverse=True)

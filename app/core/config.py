@@ -34,6 +34,8 @@ class Settings:
     retrieval_feedback_cited_boost: float
     retrieval_feedback_missed_penalty: float
     retrieval_feedback_min_token_overlap: float
+    retrieval_feedback_decay_half_life_hours: float
+    retrieval_feedback_cluster_cap: int
     context_handoff_enabled: bool
     context_handoff_turn_limit: int
     context_handoff_resume_idle_minutes: int
@@ -95,6 +97,10 @@ def load_settings() -> Settings:
         retrieval_feedback_cited_boost=max(0.0, float(os.getenv("RETRIEVAL_FEEDBACK_CITED_BOOST", "0.08"))),
         retrieval_feedback_missed_penalty=max(0.0, float(os.getenv("RETRIEVAL_FEEDBACK_MISSED_PENALTY", "0.03"))),
         retrieval_feedback_min_token_overlap=max(0.0, float(os.getenv("RETRIEVAL_FEEDBACK_MIN_TOKEN_OVERLAP", "0.2"))),
+        retrieval_feedback_decay_half_life_hours=max(
+            0.0, float(os.getenv("RETRIEVAL_FEEDBACK_DECAY_HALF_LIFE_HOURS", "96"))
+        ),
+        retrieval_feedback_cluster_cap=max(1, int(os.getenv("RETRIEVAL_FEEDBACK_CLUSTER_CAP", "4"))),
         context_handoff_enabled=_getenv_bool("CONTEXT_HANDOFF_ENABLED", True),
         context_handoff_turn_limit=int(os.getenv("CONTEXT_HANDOFF_TURN_LIMIT", "20")),
         context_handoff_resume_idle_minutes=int(os.getenv("CONTEXT_HANDOFF_RESUME_IDLE_MINUTES", "45")),

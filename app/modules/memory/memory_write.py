@@ -18,11 +18,13 @@ from app.modules.memory.policy import (
     parse_iso,
 )
 from app.modules.memory.router import normalize_memory_kind, route_memory
+from app.modules.memory.scope import apply_scope_to_source_refs, normalize_scope, scope_matches
 from app.queue.db import get_conn
 from app.queue.logs import log_run
 
 
 MemoryType = str
+SUPERSEDE_REASON_SLOT_VALUE_CONFLICT = "slot_value_conflict"
 
 
 def write_memory(
@@ -40,6 +42,9 @@ def write_memory(
     memory_slot: Optional[str] = None,
     memory_value: Optional[str] = None,
     overwrite_conflicts: bool = False,
+    user_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> Dict[str, object]:
     memory_id = str(uuid.uuid4())
     memory_type = normalize_memory_type(memory_type)
@@ -47,6 +52,7 @@ def write_memory(
     topics = normalize_list(topics)
     entities = normalize_list(entities)
     source_refs = dict(source_refs or {})
+    scope = normalize_scope(user_id=user_id, project_id=project_id, session_id=session_id)
     route = route_memory(text=text, memory_type_hint=memory_type, preferred_kind=memory_kind)
     memory_kind = normalize_memory_kind(memory_kind, default=str(route.get("memory_kind") or "semantic"))
     memory_slot = normalize_text(memory_slot or route.get("memory_slot") or "", max_len=64) or None
@@ -58,6 +64,7 @@ def write_memory(
         source_refs.setdefault("memory_slot", memory_slot)
     if memory_value:
         source_refs.setdefault("memory_value", memory_value)
+    source_refs = apply_scope_to_source_refs(source_refs, scope)
     created_at_dt = now_utc()
     created_at = created_at_dt.isoformat()
     importance = clamp_float(importance, default=0.5)
@@ -145,19 +152,24 @@ def write_memory(
         conn.commit()
 
     superseded_count = 0
+    superseded_ids: List[str] = []
     if overwrite_conflicts and memory_slot and memory_value:
-        superseded_count = _supersede_conflicting_memories(
+        supersede_result = _supersede_conflicting_memories(
             memory_id=memory_id,
             memory_slot=memory_slot,
             memory_value=memory_value,
             memory_kind=memory_kind,
+            scope=scope,
         )
+        superseded_count = int(supersede_result.get("count") or 0)
+        superseded_ids = [str(x) for x in supersede_result.get("superseded_ids") or [] if str(x).strip()]
 
     receipt = {
         "memory_id": memory_id,
         "memory_type": memory_type,
         "memory_kind": memory_kind,
         "superseded_count": superseded_count,
+        "superseded_ids": superseded_ids,
         "published": False,
         "error": None,
     }
@@ -222,10 +234,14 @@ def _supersede_conflicting_memories(
     memory_slot: str,
     memory_value: str,
     memory_kind: str,
-) -> int:
+    scope: Dict[str, str],
+) -> Dict[str, object]:
     like_pattern = f'%\"memory_slot\"%{memory_slot}%'
     updates: List[tuple[str, str]] = []
+    superseded_ids: List[str] = []
+    new_timeline_events: List[Dict[str, object]] = []
     now = now_iso()
+    reason_code = SUPERSEDE_REASON_SLOT_VALUE_CONFLICT
     with get_conn() as conn:
         cur = conn.cursor()
         if conn.is_sqlite:
@@ -251,12 +267,39 @@ def _supersede_conflicting_memories(
                 continue
             if str(refs.get("memory_kind") or "semantic") != memory_kind:
                 continue
+            if not scope_matches(refs, scope):
+                continue
             previous_value = normalize_text(refs.get("memory_value") or "", max_len=280)
             if not previous_value or previous_value == memory_value:
                 continue
             refs["superseded_by"] = memory_id
             refs["superseded_at"] = now
+            refs["supersede_reason_code"] = reason_code
+            _append_revision_event(
+                refs,
+                {
+                    "event": "superseded",
+                    "at": now,
+                    "reason_code": reason_code,
+                    "counterpart_memory_id": memory_id,
+                    "memory_slot": memory_slot,
+                    "previous_value": previous_value,
+                    "new_value": memory_value,
+                },
+            )
             updates.append((old_id, _json_dumps(refs)))
+            superseded_ids.append(old_id)
+            new_timeline_events.append(
+                {
+                    "event": "supersedes",
+                    "at": now,
+                    "reason_code": reason_code,
+                    "counterpart_memory_id": old_id,
+                    "memory_slot": memory_slot,
+                    "previous_value": previous_value,
+                    "new_value": memory_value,
+                }
+            )
 
         for old_id, refs_json in updates:
             try:
@@ -277,6 +320,81 @@ def _supersede_conflicting_memories(
                 else:
                     cur.execute("UPDATE memory_items SET source_refs=%s WHERE memory_id=%s", (refs_json, old_id))
 
-        if updates:
+        if superseded_ids:
+            _update_new_memory_revision_trail(
+                conn=conn,
+                cur=cur,
+                memory_id=memory_id,
+                superseded_ids=superseded_ids,
+                reason_code=reason_code,
+                timeline_events=new_timeline_events,
+            )
+        if updates or superseded_ids:
             conn.commit()
-    return len(updates)
+    return {
+        "count": len(updates),
+        "superseded_ids": superseded_ids,
+        "reason_code": reason_code if superseded_ids else None,
+    }
+
+
+def _update_new_memory_revision_trail(
+    conn: object,
+    cur: object,
+    memory_id: str,
+    superseded_ids: List[str],
+    reason_code: str,
+    timeline_events: List[Dict[str, object]],
+) -> None:
+    if conn.is_sqlite:
+        cur.execute("SELECT source_refs FROM memory_items WHERE memory_id=?", (memory_id,))
+    else:
+        cur.execute("SELECT source_refs FROM memory_items WHERE memory_id=%s", (memory_id,))
+    row = cur.fetchone()
+    refs = _json_loads(row[0]) if row else {}
+    if not isinstance(refs, dict):
+        refs = {}
+
+    _append_unique_strings(refs, "supersedes", superseded_ids, max_items=64)
+    _append_unique_strings(refs, "supersede_reason_codes", [reason_code], max_items=16)
+    for event in timeline_events:
+        _append_revision_event(refs, event, max_items=80)
+
+    refs_json = _json_dumps(refs)
+    if conn.is_sqlite:
+        cur.execute("UPDATE memory_items SET source_refs=? WHERE memory_id=?", (refs_json, memory_id))
+    else:
+        cur.execute("UPDATE memory_items SET source_refs=%s WHERE memory_id=%s", (refs_json, memory_id))
+
+
+def _append_unique_strings(refs: Dict[str, object], key: str, values: List[str], max_items: int) -> None:
+    current = refs.get(key)
+    if not isinstance(current, list):
+        current = []
+    out: List[str] = []
+    seen = set()
+    for item in current:
+        text = normalize_text(item, max_len=160)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    for item in values:
+        text = normalize_text(item, max_len=160)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    if len(out) > max_items:
+        out = out[-max_items:]
+    refs[key] = out
+
+
+def _append_revision_event(refs: Dict[str, object], event: Dict[str, object], max_items: int = 80) -> None:
+    timeline = refs.get("revision_timeline")
+    if not isinstance(timeline, list):
+        timeline = []
+    timeline.append(event)
+    if len(timeline) > max_items:
+        timeline = timeline[-max_items:]
+    refs["revision_timeline"] = timeline

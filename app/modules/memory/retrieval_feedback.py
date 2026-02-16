@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.config import load_settings
 from app.core.textnorm import normalize_user_text
 from app.modules.memory.memory_write import write_memory
-from app.modules.memory.policy import tokens
+from app.modules.memory.policy import now_utc, parse_iso, tokens
+from app.modules.memory.scope import normalize_scope, scope_matches
 from app.queue.db import get_conn
 
 
@@ -17,6 +19,9 @@ def record_retrieval_feedback(
     evidence: List[Dict[str, object]],
     citations: List[Dict[str, object]],
     answer_text: str = "",
+    user_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> Optional[Dict[str, object]]:
     settings = load_settings()
     if not settings.memory_enabled or not settings.retrieval_feedback_enabled:
@@ -55,6 +60,8 @@ def record_retrieval_feedback(
     missed_count = len(signals) - cited_count
     ratio = (float(cited_count) / float(len(signals))) if signals else 0.0
     query_tokens = tokens(q)[:10]
+    query_cluster = _query_cluster_key(query_tokens)
+    scope = normalize_scope(user_id=user_id, project_id=project_id, session_id=session_id)
     summary = (
         f"Retrieval feedback for question: {q[:240]}. "
         f"Cited={cited_count}, missed={missed_count}, evidence_considered={len(signals)}. "
@@ -69,6 +76,7 @@ def record_retrieval_feedback(
             "kind": "retrieval_feedback",
             "query": q,
             "query_tokens": query_tokens,
+            "query_cluster": query_cluster,
             "signals": signals,
             "cited_count": cited_count,
             "missed_count": missed_count,
@@ -77,6 +85,9 @@ def record_retrieval_feedback(
         confidence=0.72,
         publish_long_term=False,
         memory_kind="procedural",
+        user_id=scope.get("user_id"),
+        project_id=scope.get("project_id"),
+        session_id=scope.get("session_id"),
     )
     return {
         "memory_id": receipt.get("memory_id"),
@@ -86,7 +97,13 @@ def record_retrieval_feedback(
     }
 
 
-def apply_retrieval_feedback(query: str, rows: List[Dict[str, Any]]) -> None:
+def apply_retrieval_feedback(
+    query: str,
+    rows: List[Dict[str, Any]],
+    user_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> None:
     settings = load_settings()
     if not settings.memory_enabled or not settings.retrieval_feedback_enabled:
         return
@@ -97,13 +114,19 @@ def apply_retrieval_feedback(query: str, rows: List[Dict[str, Any]]) -> None:
     if not q_tokens:
         return
 
-    feedback_items = _load_feedback_items(limit=max(1, int(settings.retrieval_feedback_history_limit)))
+    scope = normalize_scope(user_id=user_id, project_id=project_id, session_id=session_id)
+    feedback_items = _load_feedback_items(
+        limit=max(1, int(settings.retrieval_feedback_history_limit)),
+        scope=scope,
+    )
     if not feedback_items:
         return
 
     by_segment: Dict[Tuple[str, str], float] = {}
     by_doc: Dict[str, float] = {}
     min_overlap = max(0.0, float(settings.retrieval_feedback_min_token_overlap))
+    cluster_cap = max(1, int(settings.retrieval_feedback_cluster_cap))
+    cluster_counts: Dict[str, int] = {}
     for item in feedback_items:
         refs = item.get("source_refs") if isinstance(item.get("source_refs"), dict) else {}
         query_tokens = refs.get("query_tokens") if isinstance(refs, dict) else []
@@ -112,9 +135,19 @@ def apply_retrieval_feedback(query: str, rows: List[Dict[str, Any]]) -> None:
         overlap = _token_overlap(q_tokens, [str(tok) for tok in query_tokens])
         if overlap < min_overlap:
             continue
+        cluster = _query_cluster_key(query_tokens)
+        if cluster_counts.get(cluster, 0) >= cluster_cap:
+            continue
+        decay_weight = _decay_weight(
+            created_at=item.get("created_at"),
+            half_life_hours=float(settings.retrieval_feedback_decay_half_life_hours),
+        )
+        if decay_weight <= 0.0:
+            continue
         signals = refs.get("signals") if isinstance(refs, dict) else []
         if not isinstance(signals, list):
             continue
+        cluster_counts[cluster] = cluster_counts.get(cluster, 0) + 1
         for signal in signals:
             if not isinstance(signal, dict):
                 continue
@@ -124,9 +157,9 @@ def apply_retrieval_feedback(query: str, rows: List[Dict[str, Any]]) -> None:
                 continue
             outcome = str(signal.get("outcome") or "").strip().lower()
             if outcome == "cited":
-                delta = float(settings.retrieval_feedback_cited_boost) * overlap
+                delta = float(settings.retrieval_feedback_cited_boost) * overlap * decay_weight
             elif outcome == "missed":
-                delta = -float(settings.retrieval_feedback_missed_penalty) * overlap
+                delta = -float(settings.retrieval_feedback_missed_penalty) * overlap * decay_weight
             else:
                 continue
             if segment_id:
@@ -150,8 +183,9 @@ def apply_retrieval_feedback(query: str, rows: List[Dict[str, Any]]) -> None:
         row["final_score"] = round(max(0.0, base + boost), 6)
 
 
-def _load_feedback_items(limit: int) -> List[Dict[str, object]]:
+def _load_feedback_items(limit: int, scope: Dict[str, str]) -> List[Dict[str, object]]:
     like_pattern = '%"kind"%retrieval_feedback%'
+    fetch_limit = max(limit, limit * 4)
     with get_conn() as conn:
         cur = conn.cursor()
         if conn.is_sqlite:
@@ -159,14 +193,14 @@ def _load_feedback_items(limit: int) -> List[Dict[str, object]]:
                 "SELECT source_refs, created_at FROM memory_items "
                 "WHERE memory_type=? AND source_refs LIKE ? "
                 "ORDER BY created_at DESC LIMIT ?",
-                ("working", like_pattern, limit),
+                ("working", like_pattern, fetch_limit),
             )
         else:
             cur.execute(
                 "SELECT source_refs, created_at FROM memory_items "
                 "WHERE memory_type=%s AND CAST(source_refs AS TEXT) ILIKE %s "
                 "ORDER BY created_at DESC LIMIT %s",
-                ("working", like_pattern, limit),
+                ("working", like_pattern, fetch_limit),
             )
         rows = cur.fetchall()
 
@@ -177,7 +211,11 @@ def _load_feedback_items(limit: int) -> List[Dict[str, object]]:
             continue
         if str(refs.get("kind") or "") != "retrieval_feedback":
             continue
+        if not scope_matches(refs, scope):
+            continue
         out.append({"source_refs": refs, "created_at": row[1]})
+        if len(out) >= limit:
+            break
     return out
 
 
@@ -212,6 +250,25 @@ def _safe_float(value: object, default: float) -> float:
         return float(value)
     except Exception:
         return default
+
+
+def _query_cluster_key(query_tokens: List[str]) -> str:
+    cleaned = [str(tok).strip().lower() for tok in query_tokens if str(tok or "").strip()]
+    if not cleaned:
+        return "cluster:unknown"
+    return "|".join(cleaned[:4])
+
+
+def _decay_weight(created_at: object, half_life_hours: float) -> float:
+    if half_life_hours <= 0.0:
+        return 1.0
+    created_dt = parse_iso(created_at)
+    if created_dt is None:
+        return 1.0
+    age_hours = max(0.0, (now_utc() - created_dt).total_seconds() / 3600.0)
+    if age_hours <= 0.0:
+        return 1.0
+    return math.pow(0.5, age_hours / half_life_hours)
 
 
 def _json_loads(value: object) -> object:

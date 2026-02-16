@@ -21,6 +21,7 @@ from app.queue.jobs import enqueue_job
 from app.queue.db import init_db, get_conn
 from app.modules.memory.memory_write import write_memory
 from app.modules.memory.memory_recall import recall as recall_memory
+from app.modules.memory.memory_stats import get_memory_stats
 from app.modules.memory.router import parse_explicit_remember, route_memory
 from app.modules.memory.retrieval_feedback import record_retrieval_feedback
 from app.modules.memory.context_handoff import (
@@ -58,6 +59,8 @@ TOOLS = [
             "properties": {
                 "question": {"type": "string", "minLength": 1, "maxLength": 2400},
                 "remember": {"type": "boolean"},
+                "user_id": {"type": "string", "minLength": 1, "maxLength": 120},
+                "project_id": {"type": "string", "minLength": 1, "maxLength": 120},
                 "session_id": {"type": "string", "minLength": 1, "maxLength": 120},
             },
             "required": ["question"],
@@ -80,6 +83,9 @@ TOOLS = [
                 "expires_at": {"type": "string"},
                 "pinned_until": {"type": "string"},
                 "publish_long_term": {"type": "boolean"},
+                "user_id": {"type": "string", "minLength": 1, "maxLength": 120},
+                "project_id": {"type": "string", "minLength": 1, "maxLength": 120},
+                "session_id": {"type": "string", "minLength": 1, "maxLength": 120},
             },
             "required": ["type", "text"],
         },
@@ -94,8 +100,23 @@ TOOLS = [
                 "limit": {"type": "integer"},
                 "type": {"type": "string"},
                 "include_long_term": {"type": "boolean"},
+                "user_id": {"type": "string", "minLength": 1, "maxLength": 120},
+                "project_id": {"type": "string", "minLength": 1, "maxLength": 120},
+                "session_id": {"type": "string", "minLength": 1, "maxLength": 120},
             },
             "required": ["query"],
+        },
+    },
+    {
+        "name": "memory_stats",
+        "description": "Memory observability stats",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {"type": "string", "minLength": 1, "maxLength": 120},
+                "project_id": {"type": "string", "minLength": 1, "maxLength": 120},
+                "session_id": {"type": "string", "minLength": 1, "maxLength": 120},
+            },
         },
     },
     {
@@ -194,7 +215,7 @@ def _tool_ingest_youtube(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _tool_ask(args: Dict[str, Any]) -> Dict[str, Any]:
-    allowed = {"question", "remember", "session_id"}
+    allowed = {"question", "remember", "user_id", "project_id", "session_id"}
     unknown = sorted(str(k) for k in args.keys() if k not in allowed)
     if unknown:
         raise ValueError(f"ask received unknown argument(s): {', '.join(unknown)}")
@@ -206,10 +227,8 @@ def _tool_ask(args: Dict[str, Any]) -> Dict[str, Any]:
     if not question:
         raise ValueError("ask.question must be a non-empty string")
     remember = _parse_bool(args.get("remember", False))
-    session_id_raw = args.get("session_id")
-    if session_id_raw is not None and not isinstance(session_id_raw, str):
-        raise ValueError("ask.session_id must be a string when provided")
-    session_id = normalize_identifier(session_id_raw, max_len=120) or None
+    scope = _parse_scope_arguments(args, error_prefix="ask")
+    session_id = scope.get("session_id")
     remember_directive = parse_explicit_remember(question)
     if remember_directive and remember_directive.get("text"):
         receipt = _write_routed_ask_memory(
@@ -217,6 +236,9 @@ def _tool_ask(args: Dict[str, Any]) -> Dict[str, Any]:
             question=question,
             trigger="explicit_remember",
             preferred_kind=remember_directive.get("memory_kind"),
+            user_id=scope.get("user_id"),
+            project_id=scope.get("project_id"),
+            session_id=session_id,
         )
         kind = str(receipt.get("memory_kind") or "semantic")
         superseded = int(receipt.get("superseded_count") or 0)
@@ -224,7 +246,9 @@ def _tool_ask(args: Dict[str, Any]) -> Dict[str, Any]:
         return {"answer_text": f"Saved memory [{kind}] id={receipt['memory_id']}.{extra}".strip(), "citations": []}
 
     plan = route_question(question)
-    evidence = retrieve(question, limit=plan.retrieve_top_k, filters=plan.filters)
+    plan_filters = dict(plan.filters or {})
+    plan_filters.update(scope)
+    evidence = retrieve(question, limit=plan.retrieve_top_k, filters=plan_filters)
     graph_evidence = []
     try:
         graph_evidence = graph_retrieve(question, limit=plan.retrieve_top_k, hops=1)
@@ -245,6 +269,9 @@ def _tool_ask(args: Dict[str, Any]) -> Dict[str, Any]:
             evidence=combined,
             citations=payload.get("citations") or [],
             answer_text=str(payload.get("answer_text") or ""),
+            user_id=scope.get("user_id"),
+            project_id=scope.get("project_id"),
+            session_id=session_id,
         )
     except Exception:
         pass
@@ -261,6 +288,9 @@ def _tool_ask(args: Dict[str, Any]) -> Dict[str, Any]:
             memory_text=f"Q: {question}\nA: {payload.get('answer_text','')}",
             question=question,
             trigger="remember_flag",
+            user_id=scope.get("user_id"),
+            project_id=scope.get("project_id"),
+            session_id=session_id,
         )
     return payload
 
@@ -270,6 +300,9 @@ def _write_routed_ask_memory(
     question: str,
     trigger: str,
     preferred_kind: Optional[str] = None,
+    user_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     route = route_memory(memory_text, preferred_kind=preferred_kind)
     importance = 0.8 if str(route.get("memory_kind")) != "episodic" else 0.68
@@ -286,10 +319,14 @@ def _write_routed_ask_memory(
         memory_slot=str(route.get("memory_slot") or "") or None,
         memory_value=str(route.get("memory_value") or "") or None,
         overwrite_conflicts=True,
+        user_id=user_id,
+        project_id=project_id,
+        session_id=session_id,
     )
 
 
 def _tool_memory_write(args: Dict[str, Any]) -> Dict[str, Any]:
+    scope = _parse_scope_arguments(args, error_prefix="memory_write")
     return write_memory(
         memory_type=str(args["type"]),
         text=str(args["text"]),
@@ -301,6 +338,9 @@ def _tool_memory_write(args: Dict[str, Any]) -> Dict[str, Any]:
         expires_at=args.get("expires_at"),
         pinned_until=args.get("pinned_until"),
         publish_long_term=bool(args.get("publish_long_term", False)),
+        user_id=scope.get("user_id"),
+        project_id=scope.get("project_id"),
+        session_id=scope.get("session_id"),
     )
 
 
@@ -309,11 +349,24 @@ def _tool_context_handoff(_args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _tool_memory_recall(args: Dict[str, Any]) -> List[Dict[str, Any]]:
+    scope = _parse_scope_arguments(args, error_prefix="memory_recall")
     return recall_memory(
         query=str(args["query"]),
         limit=int(args.get("limit", 10)),
         memory_type=args.get("type"),
+        user_id=scope.get("user_id"),
+        project_id=scope.get("project_id"),
+        session_id=scope.get("session_id"),
         include_long_term=bool(args.get("include_long_term", False)),
+    )
+
+
+def _tool_memory_stats(args: Dict[str, Any]) -> Dict[str, Any]:
+    scope = _parse_scope_arguments(args, error_prefix="memory_stats")
+    return get_memory_stats(
+        user_id=scope.get("user_id"),
+        project_id=scope.get("project_id"),
+        session_id=scope.get("session_id"),
     )
 
 
@@ -343,6 +396,20 @@ def _tool_ingest_auto(args: Dict[str, Any]) -> Dict[str, Any]:
 
 def _tool_intake_open(_args: Dict[str, Any]) -> Dict[str, Any]:
     return {"resource_uri": "ui://intake"}
+
+
+def _parse_scope_arguments(args: Dict[str, Any], error_prefix: str) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    for key in ("user_id", "project_id", "session_id"):
+        value = args.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            raise ValueError(f"{error_prefix}.{key} must be a string when provided")
+        normalized = normalize_identifier(value, max_len=120)
+        if normalized:
+            out[key] = normalized
+    return out
 
 
 def _parse_bool(value: object) -> bool:
@@ -378,6 +445,8 @@ def handle_request(req: Dict[str, Any]) -> Dict[str, Any]:
             return _tool_memory_write(args)
         if name == "memory_recall":
             return _tool_memory_recall(args)
+        if name == "memory_stats":
+            return _tool_memory_stats(args)
         if name == "context_handoff":
             return _tool_context_handoff(args)
         if name == "status":

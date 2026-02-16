@@ -33,16 +33,18 @@ def test_cli_ask_records_retrieval_feedback(tmp_path, monkeypatch):
     init_db()
 
     captured = {}
+    retrieve_capture = {}
     monkeypatch.setattr(
         cli_main,
         "route_question",
         lambda q: RouteOutput(intent="ask", filters={}, retrieve_top_k=2, need_strong_model=False, reason="ok"),
     )
-    monkeypatch.setattr(
-        cli_main,
-        "retrieve",
-        lambda question, limit=10, filters=None: [{"doc_id": "d1", "segment_id": "s1", "text_snippet": "x"}],
-    )
+
+    def fake_retrieve(question, limit=10, filters=None):
+        retrieve_capture["filters"] = dict(filters or {})
+        return [{"doc_id": "d1", "segment_id": "s1", "text_snippet": "x"}]
+
+    monkeypatch.setattr(cli_main, "retrieve", fake_retrieve)
     monkeypatch.setattr(cli_main, "graph_retrieve", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(cli_main, "analyze", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(cli_main, "synthesize", lambda *_args, **_kwargs: SynthesizeOutput(answer_text="ok", citations=[]))
@@ -53,7 +55,17 @@ def test_cli_ask_records_retrieval_feedback(tmp_path, monkeypatch):
         lambda **kwargs: captured.setdefault("feedback", kwargs),
     )
 
-    args = SimpleNamespace(question="How is roadmap?", session_id=None, remember=False)
+    args = SimpleNamespace(
+        question="How is roadmap?",
+        session_id="session-7",
+        user_id="user-1",
+        project_id="proj-1",
+        remember=False,
+    )
     cli_main.cmd_ask(args)
     assert "feedback" in captured
     assert captured["feedback"]["question"] == "How is roadmap?"
+    assert captured["feedback"]["session_id"] == "session-7"
+    assert retrieve_capture["filters"]["user_id"] == "user-1"
+    assert retrieve_capture["filters"]["project_id"] == "proj-1"
+    assert retrieve_capture["filters"]["session_id"] == "session-7"

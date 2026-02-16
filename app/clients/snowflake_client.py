@@ -194,9 +194,31 @@ class SnowflakeClient:
             f"WHERE {where_sql} LIMIT {limit}"
         )
 
-    def search_memory(self, query: str, limit: int = 10) -> str:
+    def search_memory(self, query: str, limit: int = 10, filters: Optional[Dict[str, Any]] = None) -> str:
         q = query.replace("'", "''")
+        filters = filters or {}
+        where = [f"TEXT ILIKE '%{q}%'"]
+        memory_type = filters.get("memory_type")
+        if memory_type:
+            mt = str(memory_type).replace("'", "''")
+            where.append(f"CATEGORY = '{mt}'")
+
+        memory_kind = filters.get("memory_kind")
+        if memory_kind:
+            mk = str(memory_kind).replace("'", "''")
+            where.append(f"SOURCE_REFS:memory_kind::string = '{mk}'")
+
+        for key in ("user_id", "project_id", "session_id"):
+            value = filters.get(key)
+            if not value:
+                continue
+            normalized = str(value).replace("'", "''")
+            where.append(
+                f"(SOURCE_REFS:{key}::string = '{normalized}' "
+                f"OR SOURCE_REFS:scope:{key}::string = '{normalized}')"
+            )
+        where_sql = " AND ".join(where)
         return (
             "SELECT MEMORY_ID, CATEGORY, TEXT, TOPICS, ENTITIES, SOURCE_REFS, CREATED_AT "
-            f"FROM MEMORY WHERE TEXT ILIKE '%{q}%' LIMIT {limit}"
+            f"FROM MEMORY WHERE {where_sql} LIMIT {limit}"
         )

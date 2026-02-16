@@ -86,6 +86,7 @@ python -m app.cli.main worker --lane io
 2) Ställ en fråga
 ```
 python -m app.cli.main ask "<question>"
+python -m app.cli.main ask "<question>" --user-id user-1 --project-id aurora --session-id chat-42
 ```
 Swarm-flödet har fallback om modelltjänsten fallerar tillfälligt (route/analyze/synthesize), och Ollama-anrop kör retry/backoff via:
 `OLLAMA_REQUEST_TIMEOUT_SECONDS`, `OLLAMA_REQUEST_RETRIES`, `OLLAMA_REQUEST_BACKOFF_SECONDS`.
@@ -97,6 +98,7 @@ Route-output saneras dessutom innan retrieval (whitelistade filter + clamp av `r
 1) Skriv minne
 ```
 python -m app.cli.main memory-write --type working --text "Kom ihåg detta"
+python -m app.cli.main memory-write --type working --text "Scoped note" --user-id user-1 --project-id aurora --session-id chat-42
 ```
 Exempel med policyfält:
 ```
@@ -105,6 +107,12 @@ python -m app.cli.main memory-write --type working --text "Viktigt" --importance
 2) Hämta minne
 ```
 python -m app.cli.main memory-recall --query "Kom ihåg" --type working --limit 5
+python -m app.cli.main memory-recall --query "Scoped note" --type working --user-id user-1 --project-id aurora --session-id chat-42
+```
+3) Visa memory-observability
+```
+python -m app.cli.main memory-stats
+python -m app.cli.main memory-stats --user-id user-1 --project-id aurora --session-id chat-42
 ```
 Memory retrieval rankas nu med textmatch, recency och policyfält (importance/confidence/access/expiry/pin).
 Ask-flödet checkpointar nu också automatiskt turns till session-minne och skriver en löpande handoff i `data/artifacts/context/auto_handoff.md`.
@@ -112,7 +120,10 @@ För ny chatt-resume kan du skicka `--session-id` i CLI (eller `session_id` i MC
 Bakgrunds-checkpoint i MCP-servern styrs via `CONTEXT_HANDOFF_BACKGROUND_INTERVAL_SECONDS` (sekunder, default 300).
 Count-baserad pre-compaction av session-turns styrs via `CONTEXT_HANDOFF_PRE_COMPACTION_TURN_COUNT` (default 12).
 `ask` stöder nu explicit minnes-hook: fraser som `remember this: ...` eller `kom ihåg detta: ...` routeas till `memory_kind` (`semantic/episodic/procedural`) och kan superseda motsägande minnen.
+Consolidation/supersede skriver nu även revision trail med `supersedes`/`superseded_by`, `supersede_reason_code` och `revision_timeline`.
 Retrospective retrieval feedback-loop är aktiv: efter `ask` skrivs feedback-minnen baserat på evidence + citations, och nästa retrieval använder dessa för lätt reranking. Styrs via `RETRIEVAL_FEEDBACK_*` i `.env`.
+Feedback-loop stöder nu även decay/aging (`RETRIEVAL_FEEDBACK_DECAY_HALF_LIFE_HOURS`) och cap per query-cluster (`RETRIEVAL_FEEDBACK_CLUSTER_CAP`) för att minska överanpassning.
+Scope-isolering stöds nu förstaklassigt för memory read/write/retrieve med `user_id`, `project_id`, `session_id` (CLI + MCP).
 
 Visa senaste auto-handoff:
 ```
@@ -183,7 +194,8 @@ Starta MCP-server över stdio:
 ```
 python -m app.cli.main mcp-server
 ```
-Tools: ingest_url, ingest_doc, ingest_youtube, ask, memory_write, memory_recall, status.
+Tools: ingest_url, ingest_doc, ingest_youtube, ask, memory_write, memory_recall, memory_stats, status.
+`ask`, `memory_write`, `memory_recall` och `memory_stats` accepterar även `user_id`, `project_id`, `session_id` för scope-isolering.
 
 ## Phase G (P6): Voice Gallery MCP UI (MVP)
 1) Starta MCP-server:

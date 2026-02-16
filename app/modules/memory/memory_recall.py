@@ -17,6 +17,7 @@ from app.modules.memory.policy import (
     recency_score,
     tokens,
 )
+from app.modules.memory.scope import normalize_scope, scope_matches
 from app.queue.db import get_conn
 
 
@@ -25,6 +26,9 @@ def recall(
     limit: int = 10,
     memory_type: Optional[str] = None,
     memory_kind: Optional[str] = None,
+    user_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    session_id: Optional[str] = None,
     include_long_term: bool = False,
     client: Optional[SnowflakeClient] = None,
 ) -> List[Dict[str, object]]:
@@ -34,7 +38,10 @@ def recall(
 
     q_tokens = tokens(q)
     candidate_limit = max(limit * 5, 20)
+    scope = normalize_scope(user_id=user_id, project_id=project_id, session_id=session_id)
     local = _query_local(q, memory_type=memory_type, limit=candidate_limit)
+    if scope:
+        local = [item for item in local if _scope_matches(item, scope)]
     memory_kind = _normalize_memory_kind_filter(memory_kind)
     if memory_kind:
         local = [item for item in local if _memory_kind_matches(item, memory_kind)]
@@ -51,7 +58,16 @@ def recall(
     _touch_local([str(item.get("memory_id")) for item in selected_local if item.get("memory_id")])
 
     if include_long_term:
-        remote = _query_long_term(q, limit=limit, client=client)
+        remote = _query_long_term(
+            q,
+            limit=limit,
+            client=client,
+            memory_type=memory_type,
+            memory_kind=memory_kind,
+            scope=scope,
+        )
+        if scope:
+            remote = [item for item in remote if _scope_matches(item, scope)]
         if memory_kind:
             remote = [item for item in remote if _memory_kind_matches(item, memory_kind)]
         for item in remote:
@@ -150,9 +166,24 @@ def _row_to_item(row: object, has_policy_fields: bool) -> Dict[str, object]:
     return item
 
 
-def _query_long_term(query: str, limit: int, client: Optional[SnowflakeClient]) -> List[Dict[str, object]]:
+def _query_long_term(
+    query: str,
+    limit: int,
+    client: Optional[SnowflakeClient],
+    memory_type: Optional[str],
+    memory_kind: Optional[str],
+    scope: Dict[str, str],
+) -> List[Dict[str, object]]:
     client = client or SnowflakeClient()
-    sql = client.search_memory(query, limit=limit)
+    sql = client.search_memory(
+        query,
+        limit=limit,
+        filters={
+            "memory_type": normalize_memory_type(memory_type) if memory_type else None,
+            "memory_kind": memory_kind,
+            **scope,
+        },
+    )
     try:
         rows = client.execute_query(sql)
     except Exception:
@@ -163,6 +194,7 @@ def _query_long_term(query: str, limit: int, client: Optional[SnowflakeClient]) 
             {
                 "memory_id": row.get("memory_id"),
                 "memory_type": normalize_memory_type(row.get("category") or "long_term"),
+                "memory_kind": _read_memory_kind(row.get("source_refs")),
                 "text": row.get("text"),
                 "topics": row.get("topics") if isinstance(row.get("topics"), list) else [],
                 "entities": row.get("entities") if isinstance(row.get("entities"), list) else [],
@@ -271,3 +303,16 @@ def _normalize_memory_kind_filter(value: object) -> Optional[str]:
 
 def _memory_kind_matches(item: Dict[str, object], memory_kind: str) -> bool:
     return str(item.get("memory_kind") or "").strip().lower() == memory_kind
+
+
+def _scope_matches(item: Dict[str, object], scope: Dict[str, str]) -> bool:
+    return scope_matches(item.get("source_refs"), scope)
+
+
+def _read_memory_kind(source_refs: object) -> Optional[str]:
+    if not isinstance(source_refs, dict):
+        return None
+    value = str(source_refs.get("memory_kind") or "").strip().lower()
+    if value in {"semantic", "episodic", "procedural"}:
+        return value
+    return None

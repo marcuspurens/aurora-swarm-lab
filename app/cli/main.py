@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
+from typing import Optional
 
 from app.core.config import load_settings
 from app.core.ids import make_source_id, sha256_file
@@ -21,6 +23,7 @@ from app.modules.swarm.analyze import analyze
 from app.modules.graph.graph_retrieve import retrieve as graph_retrieve
 from app.modules.memory.memory_write import write_memory
 from app.modules.memory.memory_recall import recall as recall_memory
+from app.modules.memory.memory_stats import get_memory_stats
 from app.modules.memory.router import parse_explicit_remember, route_memory
 from app.modules.memory.retrieval_feedback import record_retrieval_feedback
 from app.modules.memory.context_handoff import (
@@ -146,7 +149,10 @@ def cmd_ask(args) -> None:
     question = normalize_user_text(args.question, max_len=2400)
     if not question:
         raise SystemExit("Error: question must be a non-empty string.")
+    user_id = normalize_identifier(getattr(args, "user_id", None), max_len=120) or None
+    project_id = normalize_identifier(getattr(args, "project_id", None), max_len=120) or None
     session_id = normalize_identifier(args.session_id, max_len=120) or None
+    scope_filters = _scope_filters(user_id=user_id, project_id=project_id, session_id=session_id)
     remember_directive = parse_explicit_remember(question)
     if remember_directive and remember_directive.get("text"):
         receipt = _write_routed_ask_memory(
@@ -154,6 +160,9 @@ def cmd_ask(args) -> None:
             question=question,
             trigger="explicit_remember",
             preferred_kind=remember_directive.get("memory_kind"),
+            user_id=user_id,
+            project_id=project_id,
+            session_id=session_id,
         )
         memory_kind = str(receipt.get("memory_kind") or "semantic")
         print(f"Saved memory [{memory_kind}] id={receipt['memory_id']}")
@@ -163,7 +172,9 @@ def cmd_ask(args) -> None:
         return
 
     plan = route_question(question)
-    evidence = retrieve(question, limit=plan.retrieve_top_k, filters=plan.filters)
+    plan_filters = dict(plan.filters or {})
+    plan_filters.update(scope_filters)
+    evidence = retrieve(question, limit=plan.retrieve_top_k, filters=plan_filters)
     graph_evidence = []
     try:
         graph_evidence = graph_retrieve(question, limit=plan.retrieve_top_k, hops=1)
@@ -183,6 +194,9 @@ def cmd_ask(args) -> None:
             evidence=combined_evidence,
             citations=[c.model_dump() for c in result.citations],
             answer_text=result.answer_text,
+            user_id=user_id,
+            project_id=project_id,
+            session_id=session_id,
         )
     except Exception:
         pass
@@ -200,6 +214,9 @@ def cmd_ask(args) -> None:
                 memory_text=f"Q: {question}\nA: {result.answer_text}",
                 question=question,
                 trigger="remember_flag",
+                user_id=user_id,
+                project_id=project_id,
+                session_id=session_id,
             )
         except Exception:
             pass
@@ -215,6 +232,9 @@ def _write_routed_ask_memory(
     question: str,
     trigger: str,
     preferred_kind: object = None,
+    user_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> dict:
     route = route_memory(memory_text, preferred_kind=str(preferred_kind or "") or None)
     importance = 0.8 if str(route.get("memory_kind")) != "episodic" else 0.68
@@ -231,7 +251,21 @@ def _write_routed_ask_memory(
         memory_slot=str(route.get("memory_slot") or "") or None,
         memory_value=str(route.get("memory_value") or "") or None,
         overwrite_conflicts=True,
+        user_id=user_id,
+        project_id=project_id,
+        session_id=session_id,
     )
+
+
+def _scope_filters(user_id: Optional[str], project_id: Optional[str], session_id: Optional[str]) -> dict:
+    out = {}
+    if user_id:
+        out["user_id"] = user_id
+    if project_id:
+        out["project_id"] = project_id
+    if session_id:
+        out["session_id"] = session_id
+    return out
 
 
 def main() -> int:
@@ -260,6 +294,8 @@ def main() -> int:
 
     p_ask = sub.add_parser("ask")
     p_ask.add_argument("question")
+    p_ask.add_argument("--user-id", default=None)
+    p_ask.add_argument("--project-id", default=None)
     p_ask.add_argument("--session-id", default=None)
     p_ask.add_argument("--remember", action="store_true")
 
@@ -274,12 +310,23 @@ def main() -> int:
     p_mem_write.add_argument("--expires-at", default=None)
     p_mem_write.add_argument("--pinned-until", default=None)
     p_mem_write.add_argument("--publish-long-term", action="store_true")
+    p_mem_write.add_argument("--user-id", default=None)
+    p_mem_write.add_argument("--project-id", default=None)
+    p_mem_write.add_argument("--session-id", default=None)
 
     p_mem_recall = sub.add_parser("memory-recall")
     p_mem_recall.add_argument("--query", required=True)
     p_mem_recall.add_argument("--type", dest="memory_type")
     p_mem_recall.add_argument("--limit", type=int, default=10)
     p_mem_recall.add_argument("--include-long-term", action="store_true")
+    p_mem_recall.add_argument("--user-id", default=None)
+    p_mem_recall.add_argument("--project-id", default=None)
+    p_mem_recall.add_argument("--session-id", default=None)
+
+    p_mem_stats = sub.add_parser("memory-stats")
+    p_mem_stats.add_argument("--user-id", default=None)
+    p_mem_stats.add_argument("--project-id", default=None)
+    p_mem_stats.add_argument("--session-id", default=None)
 
     sub.add_parser("context-handoff")
 
@@ -311,8 +358,7 @@ def main() -> int:
     elif args.cmd == "memory-write":
         source_refs = {}
         try:
-            import json as _json
-            source_refs = _json.loads(args.source_refs)
+            source_refs = json.loads(args.source_refs)
         except Exception:
             source_refs = {}
         receipt = write_memory(
@@ -326,6 +372,9 @@ def main() -> int:
             expires_at=args.expires_at,
             pinned_until=args.pinned_until,
             publish_long_term=args.publish_long_term,
+            user_id=normalize_identifier(args.user_id, max_len=120) or None,
+            project_id=normalize_identifier(args.project_id, max_len=120) or None,
+            session_id=normalize_identifier(args.session_id, max_len=120) or None,
         )
         print(f"memory_id={receipt['memory_id']} published={receipt['published']} error={receipt['error']}")
     elif args.cmd == "memory-recall":
@@ -333,10 +382,20 @@ def main() -> int:
             query=args.query,
             limit=args.limit,
             memory_type=args.memory_type,
+            user_id=normalize_identifier(args.user_id, max_len=120) or None,
+            project_id=normalize_identifier(args.project_id, max_len=120) or None,
+            session_id=normalize_identifier(args.session_id, max_len=120) or None,
             include_long_term=args.include_long_term,
         )
         for item in results:
             print(f"- {item['memory_id']} [{item['memory_type']}] {item['text']}")
+    elif args.cmd == "memory-stats":
+        stats = get_memory_stats(
+            user_id=normalize_identifier(args.user_id, max_len=120) or None,
+            project_id=normalize_identifier(args.project_id, max_len=120) or None,
+            session_id=normalize_identifier(args.session_id, max_len=120) or None,
+        )
+        print(json.dumps(stats, ensure_ascii=True, sort_keys=True, indent=2))
     elif args.cmd == "context-handoff":
         handoff = get_handoff()
         print(handoff["text"])

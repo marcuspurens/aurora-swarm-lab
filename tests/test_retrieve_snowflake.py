@@ -145,3 +145,40 @@ def test_retrieve_uses_feedback_to_rerank_segments(tmp_path, monkeypatch):
     top_two = [row for row in results if row.get("doc_id") in {"doc-a", "doc-b"}][:2]
     assert len(top_two) == 2
     assert top_two[0]["doc_id"] == "doc-a"
+
+
+def test_retrieve_filters_memory_by_scope(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    monkeypatch.setenv("EMBEDDINGS_ENABLED", "0")
+    monkeypatch.setenv("MEMORY_ENABLED", "1")
+    monkeypatch.setenv("CONTEXT_HANDOFF_ENABLED", "0")
+    monkeypatch.setenv("MEMORY_RETRIEVE_LIMIT", "8")
+    init_db()
+
+    target = write_memory(
+        memory_type="working",
+        text="deployment checklist for scoped session",
+        publish_long_term=False,
+        user_id="alice",
+        project_id="aurora",
+        session_id="sess-a",
+    )
+    write_memory(
+        memory_type="working",
+        text="deployment checklist for other tenant",
+        publish_long_term=False,
+        user_id="bob",
+        project_id="other",
+        session_id="sess-b",
+    )
+
+    results = retrieve(
+        "deployment checklist",
+        limit=6,
+        filters={"user_id": "alice", "project_id": "aurora", "session_id": "sess-a"},
+        client=FakeEmptyClient(),
+    )
+    memory_rows = [row for row in results if str(row.get("doc_id", "")).startswith("memory:")]
+    assert len(memory_rows) == 1
+    assert memory_rows[0].get("memory_id") == target["memory_id"]

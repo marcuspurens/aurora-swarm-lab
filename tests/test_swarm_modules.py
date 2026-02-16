@@ -46,6 +46,9 @@ def test_route_question_sanitizes_route_output(monkeypatch, tmp_path):
                 "source_type": "report",
                 "memory_type": "working",
                 "memory_kind": "procedural",
+                "user_id": " user-1 ",
+                "project_id": " proj-1 ",
+                "session_id": " session-1 ",
                 "date_from": "2026-02-01",
                 "date_to": "bad-date",
                 "unknown": "drop-me",
@@ -64,6 +67,9 @@ def test_route_question_sanitizes_route_output(monkeypatch, tmp_path):
         "source_type": "report",
         "memory_type": "working",
         "memory_kind": "procedural",
+        "user_id": "user-1",
+        "project_id": "proj-1",
+        "session_id": "session-1",
         "date_from": "2026-02-01",
     }
 
