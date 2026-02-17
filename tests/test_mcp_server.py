@@ -17,9 +17,15 @@ def test_mcp_tools_list(tmp_path, monkeypatch):
     memory_stats_tool = next((tool for tool in resp["tools"] if tool.get("name") == "memory_stats"), {})
     memory_maintain_tool = next((tool for tool in resp["tools"] if tool.get("name") == "memory_maintain"), {})
     properties = ask_tool.get("input_schema", {}).get("properties", {})
+    memory_write_properties = next(
+        (tool for tool in resp["tools"] if tool.get("name") == "memory_write"),
+        {},
+    ).get("input_schema", {}).get("properties", {})
     assert "session_id" in properties
     assert "user_id" in properties
     assert "project_id" in properties
+    assert "intent" in properties
+    assert "intent" in memory_write_properties
     assert memory_stats_tool.get("name") == "memory_stats"
     assert memory_maintain_tool.get("name") == "memory_maintain"
     assert properties["question"]["minLength"] == 1
@@ -35,7 +41,7 @@ def test_mcp_memory_write_and_recall(tmp_path, monkeypatch):
     write_resp = server_main.handle_request(
         {
             "method": "tools/call",
-            "params": {"name": "memory_write", "arguments": {"type": "working", "text": "hello"}},
+            "params": {"name": "memory_write", "arguments": {"type": "working", "text": "hello", "intent": "write"}},
         }
     )
     assert write_resp["memory_id"]
@@ -62,6 +68,7 @@ def test_mcp_memory_stats(tmp_path, monkeypatch):
                 "arguments": {
                     "type": "working",
                     "text": "hello stats",
+                    "intent": "write",
                     "user_id": "user-1",
                     "project_id": "proj-1",
                     "session_id": "sess-1",
@@ -96,6 +103,7 @@ def test_mcp_memory_maintain(tmp_path, monkeypatch):
                 "arguments": {
                     "type": "working",
                     "text": "expired",
+                    "intent": "write",
                     "expires_at": "2000-01-01T00:00:00+00:00",
                     "user_id": "user-1",
                     "project_id": "proj-1",
@@ -136,6 +144,7 @@ def test_mcp_memory_maintain_enqueue(tmp_path, monkeypatch):
 def test_mcp_ingest_doc(tmp_path, monkeypatch):
     db_path = tmp_path / "queue.db"
     monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    monkeypatch.setenv("AURORA_INGEST_PATH_ALLOWLIST", str(tmp_path))
     init_db()
 
     doc = tmp_path / "doc.txt"
@@ -171,6 +180,7 @@ def test_mcp_voice_gallery_tools(tmp_path, monkeypatch):
 def test_mcp_ingest_auto_doc(tmp_path, monkeypatch):
     db_path = tmp_path / "queue.db"
     monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    monkeypatch.setenv("AURORA_INGEST_PATH_ALLOWLIST", str(tmp_path))
     init_db()
 
     doc = tmp_path / "doc.txt"
@@ -308,7 +318,10 @@ def test_mcp_ask_explicit_remember_short_circuits_swarm(tmp_path, monkeypatch):
     resp = server_main.handle_request(
         {
             "method": "tools/call",
-            "params": {"name": "ask", "arguments": {"question": "remember this: my favorite color is blue"}},
+            "params": {
+                "name": "ask",
+                "arguments": {"question": "remember this: my favorite color is blue", "intent": "remember"},
+            },
         }
     )
     assert "Saved memory" in resp["answer_text"]
@@ -441,3 +454,71 @@ def test_mcp_ask_uses_default_scope_from_env(tmp_path, monkeypatch):
     assert captured["filters"]["project_id"] == "default-project"
     assert captured["filters"]["session_id"] == "default-session"
     assert captured["feedback"]["session_id"] == "default-session"
+
+
+def test_mcp_memory_write_requires_explicit_intent(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    monkeypatch.setenv("MCP_REQUIRE_EXPLICIT_INTENT", "1")
+    init_db()
+
+    with pytest.raises(ValueError, match="memory_write.intent is required"):
+        server_main.handle_request(
+            {
+                "method": "tools/call",
+                "params": {"name": "memory_write", "arguments": {"type": "working", "text": "hello"}},
+            }
+        )
+
+
+def test_mcp_ask_remember_requires_explicit_intent(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    monkeypatch.setenv("MCP_REQUIRE_EXPLICIT_INTENT", "1")
+    init_db()
+
+    with pytest.raises(ValueError, match="ask.intent is required"):
+        server_main.handle_request(
+            {
+                "method": "tools/call",
+                "params": {"name": "ask", "arguments": {"question": "remember this: project alpha uses zsh"}},
+            }
+        )
+
+
+def test_mcp_ingest_doc_blocks_without_allowlist(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    monkeypatch.delenv("AURORA_INGEST_PATH_ALLOWLIST", raising=False)
+    monkeypatch.setenv("AURORA_INGEST_PATH_ALLOWLIST_ENFORCED", "1")
+    init_db()
+
+    doc = tmp_path / "doc.txt"
+    doc.write_text("hello", encoding="utf-8")
+
+    with pytest.raises(PermissionError, match="allowlist"):
+        server_main.handle_request(
+            {
+                "method": "tools/call",
+                "params": {"name": "ingest_doc", "arguments": {"path": str(doc)}},
+            }
+        )
+
+
+def test_mcp_tool_allowlist_by_client_filters_and_blocks(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    monkeypatch.setenv("MCP_TOOL_ALLOWLIST_BY_CLIENT", "codex=ask,memory_recall")
+    init_db()
+
+    listed = server_main.handle_request({"method": "tools/list", "params": {"client_id": "codex"}})
+    names = {tool.get("name") for tool in listed["tools"]}
+    assert names == {"ask", "memory_recall"}
+
+    with pytest.raises(PermissionError, match="not allowed"):
+        server_main.handle_request(
+            {
+                "method": "tools/call",
+                "params": {"client_id": "codex", "name": "status", "arguments": {}},
+            }
+        )

@@ -48,10 +48,16 @@ class Settings:
     default_user_id: str | None
     default_project_id: str | None
     default_session_id: str | None
+    ingest_path_allowlist: str
+    ingest_path_allowlist_enforced: bool
     egress_pii_policy: str
+    egress_pii_fail_closed: bool
     egress_pii_token_salt: str
     egress_pii_apply_to_ollama: bool
     egress_pii_apply_to_chatgpt: bool
+    mcp_require_explicit_intent: bool
+    mcp_tool_allowlist: str
+    mcp_tool_allowlist_by_client: str
     chatgpt_api_enabled: bool
     chatgpt_model: str | None
     chatgpt_api_key: str | None
@@ -128,10 +134,16 @@ def load_settings() -> Settings:
         default_user_id=os.getenv("AURORA_DEFAULT_USER_ID"),
         default_project_id=os.getenv("AURORA_DEFAULT_PROJECT_ID"),
         default_session_id=os.getenv("AURORA_DEFAULT_SESSION_ID"),
-        egress_pii_policy=os.getenv("EGRESS_PII_POLICY", "off").strip().lower() or "off",
+        ingest_path_allowlist=os.getenv("AURORA_INGEST_PATH_ALLOWLIST", ""),
+        ingest_path_allowlist_enforced=_getenv_bool("AURORA_INGEST_PATH_ALLOWLIST_ENFORCED", True),
+        egress_pii_policy=os.getenv("EGRESS_PII_POLICY", "redact").strip().lower() or "redact",
+        egress_pii_fail_closed=_getenv_bool("EGRESS_PII_FAIL_CLOSED", True),
         egress_pii_token_salt=os.getenv("EGRESS_PII_TOKEN_SALT", ""),
         egress_pii_apply_to_ollama=_getenv_bool("EGRESS_PII_APPLY_TO_OLLAMA", True),
         egress_pii_apply_to_chatgpt=_getenv_bool("EGRESS_PII_APPLY_TO_CHATGPT", True),
+        mcp_require_explicit_intent=_getenv_bool("MCP_REQUIRE_EXPLICIT_INTENT", True),
+        mcp_tool_allowlist=os.getenv("MCP_TOOL_ALLOWLIST", "*"),
+        mcp_tool_allowlist_by_client=os.getenv("MCP_TOOL_ALLOWLIST_BY_CLIENT", ""),
         chatgpt_api_enabled=_getenv_bool("CHATGPT_API_ENABLED", False),
         chatgpt_model=os.getenv("CHATGPT_MODEL"),
         chatgpt_api_key=os.getenv("CHATGPT_API_KEY"),

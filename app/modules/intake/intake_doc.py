@@ -9,6 +9,7 @@ from app.core.ids import make_source_id, parse_source_id, sha256_file
 from app.core.manifest import get_manifest, upsert_manifest
 from app.core.storage import read_artifact, write_artifact, write_artifact_bytes
 from app.core.timeutil import utc_now
+from app.modules.security.ingest_allowlist import ensure_ingest_path_allowed
 from app.queue.jobs import enqueue_job
 from app.queue.logs import log_run
 from app.modules.doc_extract.extract_doc import extract
@@ -19,7 +20,7 @@ CANONICAL_TEXT_PATH = "text/canonical.txt"
 
 
 def enqueue(path: str) -> str:
-    abs_path = str(Path(path).resolve())
+    abs_path = str(ensure_ingest_path_allowed(Path(path), source="ingest_doc_enqueue"))
     source_id = make_source_id("file", abs_path)
     source_version = sha256_file(Path(abs_path))
     return enqueue_job("ingest_doc", "io", source_id, source_version)

@@ -55,10 +55,7 @@ def synthesize(
             "analysis_prompt_chars": analysis_meta.get("chars_final"),
             "analysis_prompt_truncated": analysis_meta.get("truncated"),
             "use_strong_model": use_strong_model,
-            "egress_policy_mode": egress.effective_mode,
-            "egress_policy_reason_codes": egress.reason_codes,
-            "egress_policy_transformed": egress.transformed,
-            "egress_policy_transform_count": egress.transform_count,
+            **egress.audit_fields(),
         },
         model=model,
     )

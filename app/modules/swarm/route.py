@@ -39,10 +39,7 @@ def route_question(question: str) -> RouteOutput:
         component="swarm_route",
         input_json={
             "question": question,
-            "egress_policy_mode": egress.effective_mode,
-            "egress_policy_reason_codes": egress.reason_codes,
-            "egress_policy_transformed": egress.transformed,
-            "egress_policy_transform_count": egress.transform_count,
+            **egress.audit_fields(),
             **norm_meta,
         },
         model=settings.ollama_model_fast,

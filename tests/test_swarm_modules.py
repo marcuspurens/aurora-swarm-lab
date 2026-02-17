@@ -200,3 +200,5 @@ def test_synthesize_logs_egress_policy_reason_codes(monkeypatch, tmp_path):
     payload = json.loads(str(row[0]))
     assert payload["egress_policy_mode"] == "redact"
     assert any(code.startswith("transform.redact.") for code in payload["egress_policy_reason_codes"])
+    assert payload["egress_policy_provider"] == "ollama"
+    assert payload["egress_policy_fail_closed"] is True

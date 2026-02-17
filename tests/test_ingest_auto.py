@@ -17,6 +17,7 @@ def test_extract_items_supports_file_uri_and_url(tmp_path):
 def test_enqueue_items_ingests_file_uri(tmp_path, monkeypatch):
     db_path = tmp_path / "queue.db"
     monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    monkeypatch.setenv("AURORA_INGEST_PATH_ALLOWLIST", str(tmp_path))
     init_db()
 
     doc = tmp_path / "brief.md"
@@ -27,3 +28,19 @@ def test_enqueue_items_ingests_file_uri(tmp_path, monkeypatch):
     assert len(out) == 1
     assert out[0]["kind"] == "doc"
     assert out[0]["result"]["job_id"]
+
+
+def test_enqueue_items_blocks_file_when_allowlist_missing(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    monkeypatch.delenv("AURORA_INGEST_PATH_ALLOWLIST", raising=False)
+    monkeypatch.setenv("AURORA_INGEST_PATH_ALLOWLIST_ENFORCED", "1")
+    init_db()
+
+    doc = tmp_path / "brief.md"
+    doc.write_text("content", encoding="utf-8")
+    out = enqueue_items([f"file://{doc}"])
+
+    assert len(out) == 1
+    assert out[0]["kind"] == "error"
+    assert "allowlist" in str(out[0]["error"]).lower()

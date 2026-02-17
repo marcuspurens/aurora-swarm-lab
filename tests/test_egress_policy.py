@@ -53,3 +53,31 @@ def test_egress_policy_redacts_known_categories(monkeypatch):
     assert "[REDACTED_SE_PERSONNUMMER]" in decision.text
     assert "transform.redact.ip_address" in decision.reason_codes
     assert "transform.redact.se_personnummer" in decision.reason_codes
+
+
+def test_egress_policy_defaults_fail_closed_to_redact(monkeypatch):
+    monkeypatch.delenv("EGRESS_PII_POLICY", raising=False)
+    monkeypatch.delenv("EGRESS_PII_FAIL_CLOSED", raising=False)
+    monkeypatch.setenv("EGRESS_PII_APPLY_TO_OLLAMA", "1")
+
+    decision = apply_egress_policy("mail me at reporter@example.com", provider="ollama")
+    assert decision.configured_mode == "redact"
+    assert decision.effective_mode == "redact"
+    assert "[REDACTED_EMAIL]" in decision.text
+    assert decision.fail_closed is True
+
+
+def test_egress_policy_audit_fields_include_zero_trust_metadata(monkeypatch):
+    monkeypatch.setenv("EGRESS_PII_POLICY", "pseudonymize")
+    monkeypatch.setenv("EGRESS_PII_FAIL_CLOSED", "1")
+    monkeypatch.setenv("EGRESS_PII_APPLY_TO_CHATGPT", "1")
+    monkeypatch.setenv("EGRESS_PII_TOKEN_SALT", "seed-2")
+
+    decision = apply_egress_policy("contact jane@example.com", provider="chatgpt")
+    audit = decision.audit_fields()
+    assert audit["egress_policy_provider"] == "chatgpt"
+    assert audit["egress_policy_mode"] == "pseudonymize"
+    assert audit["egress_policy_fail_closed"] is True
+    assert audit["egress_policy_input_chars"] > 0
+    assert audit["egress_policy_output_chars"] > 0
+    assert "egress_policy_revision" in audit

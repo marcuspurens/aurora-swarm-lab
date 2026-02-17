@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from typing import Any, Dict, List, Optional
 
@@ -35,6 +36,7 @@ from app.modules.memory.context_handoff import (
 )
 from app.modules.voiceprint.gallery import list_voiceprints, upsert_person
 from app.modules.intake.ingest_auto import extract_items, enqueue_items
+from app.modules.security.ingest_allowlist import ensure_ingest_path_allowed
 
 
 TOOLS = [
@@ -61,6 +63,7 @@ TOOLS = [
             "properties": {
                 "question": {"type": "string", "minLength": 1, "maxLength": 2400},
                 "remember": {"type": "boolean"},
+                "intent": {"type": "string", "minLength": 1, "maxLength": 40},
                 "user_id": {"type": "string", "minLength": 1, "maxLength": 120},
                 "project_id": {"type": "string", "minLength": 1, "maxLength": 120},
                 "session_id": {"type": "string", "minLength": 1, "maxLength": 120},
@@ -85,6 +88,7 @@ TOOLS = [
                 "expires_at": {"type": "string"},
                 "pinned_until": {"type": "string"},
                 "publish_long_term": {"type": "boolean"},
+                "intent": {"type": "string", "minLength": 1, "maxLength": 40},
                 "user_id": {"type": "string", "minLength": 1, "maxLength": 120},
                 "project_id": {"type": "string", "minLength": 1, "maxLength": 120},
                 "session_id": {"type": "string", "minLength": 1, "maxLength": 120},
@@ -193,6 +197,160 @@ TOOLS = [
     },
 ]
 
+_INTENT_ALIASES = {
+    "write": {"write", "memory_write", "save", "store"},
+    "remember": {"remember", "memory_remember", "kom_ihag"},
+    "todo": {"todo", "task", "memory_todo"},
+}
+
+
+def _normalize_policy_token(value: object, max_len: int = 120) -> str:
+    token = normalize_identifier(value, max_len=max_len).lower()
+    token = re.sub(r"[\s\-]+", "_", token)
+    return token.strip("_")
+
+
+def _normalize_tool_name(value: object) -> str:
+    return _normalize_policy_token(value, max_len=80)
+
+
+def _parse_tool_set(raw: object) -> Optional[set[str]]:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    items = set()
+    for token in re.split(r"[,\s]+", text):
+        name = _normalize_tool_name(token)
+        if not name:
+            continue
+        if name in {"*", "all"}:
+            return None
+        if name in {"none", "deny_all"}:
+            return set()
+        items.add(name)
+    if not items:
+        return set()
+    return items
+
+
+def _parse_tool_allowlist_by_client(raw: object) -> Dict[str, Optional[set[str]]]:
+    text = str(raw or "").strip()
+    if not text:
+        return {}
+    out: Dict[str, Optional[set[str]]] = {}
+    for chunk in re.split(r"[;\n]+", text):
+        entry = chunk.strip()
+        if not entry or "=" not in entry:
+            continue
+        key_raw, value_raw = entry.split("=", 1)
+        key = _normalize_policy_token(key_raw, max_len=120)
+        if not key:
+            continue
+        out[key] = _parse_tool_set(value_raw)
+    return out
+
+
+def _intersect_allowlists(first: Optional[set[str]], second: Optional[set[str]]) -> Optional[set[str]]:
+    if first is None and second is None:
+        return None
+    if first is None:
+        return second
+    if second is None:
+        return first
+    return first.intersection(second)
+
+
+def _resolve_request_tags(req: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, str]:
+    client_id = _normalize_policy_token(params.get("client_id") or req.get("client_id"), max_len=120)
+    use_case = _normalize_policy_token(params.get("use_case") or req.get("use_case"), max_len=120)
+    out: Dict[str, str] = {}
+    if client_id:
+        out["client_id"] = client_id
+    if use_case:
+        out["use_case"] = use_case
+    return out
+
+
+def _resolve_tool_allowlist(req: Dict[str, Any], params: Dict[str, Any]) -> Optional[set[str]]:
+    settings = load_settings()
+    global_allow = _parse_tool_set(settings.mcp_tool_allowlist)
+    by_client = _parse_tool_allowlist_by_client(settings.mcp_tool_allowlist_by_client)
+    tags = _resolve_request_tags(req, params)
+    client_id = tags.get("client_id")
+    use_case = tags.get("use_case")
+
+    specific: Optional[set[str]] = None
+    keys: List[str] = []
+    if client_id and use_case:
+        keys.append(f"{client_id}/{use_case}")
+    if client_id:
+        keys.append(client_id)
+    if use_case:
+        keys.append(f"@{use_case}")
+
+    for key in keys:
+        if key in by_client:
+            specific = by_client[key]
+            break
+
+    return _intersect_allowlists(global_allow, specific)
+
+
+def _require_tool_allowed(tool_name: str, req: Dict[str, Any], params: Dict[str, Any]) -> None:
+    allowlist = _resolve_tool_allowlist(req, params)
+    if allowlist is None:
+        return
+    if _normalize_tool_name(tool_name) in allowlist:
+        return
+    tags = _resolve_request_tags(req, params)
+    context = ""
+    if tags:
+        context = " " + ", ".join(f"{k}={v}" for k, v in tags.items())
+    raise PermissionError(f"Tool '{tool_name}' is not allowed by MCP tool allowlist.{context}")
+
+
+def _filter_tools_for_request(req: Dict[str, Any], params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    allowlist = _resolve_tool_allowlist(req, params)
+    if allowlist is None:
+        return TOOLS
+    return [tool for tool in TOOLS if _normalize_tool_name(tool.get("name")) in allowlist]
+
+
+def _normalize_intent(value: object) -> str:
+    return _normalize_policy_token(value, max_len=40)
+
+
+def _require_action_intent(args: Dict[str, Any], action: str, error_prefix: str) -> str:
+    settings = load_settings()
+    if not settings.mcp_require_explicit_intent:
+        return ""
+    required = _normalize_policy_token(action, max_len=40)
+    provided = _normalize_intent(args.get("intent"))
+    if not provided:
+        raise ValueError(f"{error_prefix}.intent is required for action '{required}'")
+    allowed = _INTENT_ALIASES.get(required, {required})
+    if provided not in allowed:
+        allowed_hint = ", ".join(sorted(allowed))
+        raise ValueError(f"{error_prefix}.intent='{provided}' does not match action '{required}' (allowed: {allowed_hint})")
+    return provided
+
+
+def _is_todo_memory_write(args: Dict[str, Any]) -> bool:
+    text = normalize_user_text(args.get("text"), max_len=280).lower()
+    if text.startswith("todo:"):
+        return True
+    topics = args.get("topics")
+    if isinstance(topics, list):
+        for topic in topics:
+            if _normalize_policy_token(topic, max_len=40) == "todo":
+                return True
+    source_refs = args.get("source_refs")
+    if isinstance(source_refs, dict):
+        kind = _normalize_policy_token(source_refs.get("kind"), max_len=80)
+        if "todo" in kind:
+            return True
+    return False
+
 
 def _status() -> Dict[str, int]:
     with get_conn() as conn:
@@ -212,7 +370,7 @@ def _tool_ingest_url(args: Dict[str, Any]) -> Dict[str, Any]:
 
 def _tool_ingest_doc(args: Dict[str, Any]) -> Dict[str, Any]:
     from pathlib import Path
-    path = Path(str(args["path"])).resolve()
+    path = ensure_ingest_path_allowed(Path(str(args["path"])), source="mcp.ingest_doc")
     source_id = make_source_id("file", str(path))
     source_version = sha256_file(path)
     job_id = enqueue_job("ingest_doc", "io", source_id, source_version)
@@ -230,7 +388,7 @@ def _tool_ingest_youtube(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _tool_ask(args: Dict[str, Any]) -> Dict[str, Any]:
-    allowed = {"question", "remember", "user_id", "project_id", "session_id"}
+    allowed = {"question", "remember", "intent", "user_id", "project_id", "session_id"}
     unknown = sorted(str(k) for k in args.keys() if k not in allowed)
     if unknown:
         raise ValueError(f"ask received unknown argument(s): {', '.join(unknown)}")
@@ -244,13 +402,16 @@ def _tool_ask(args: Dict[str, Any]) -> Dict[str, Any]:
     remember = _parse_bool(args.get("remember", False))
     scope = _parse_scope_arguments(args, error_prefix="ask")
     session_id = scope.get("session_id")
+    provided_intent = _normalize_intent(args.get("intent"))
     remember_directive = parse_explicit_remember(question)
     if remember_directive and remember_directive.get("text"):
+        guard_intent = _require_action_intent(args, action="remember", error_prefix="ask")
         receipt = _write_routed_ask_memory(
             memory_text=str(remember_directive.get("text") or ""),
             question=question,
             trigger="explicit_remember",
             preferred_kind=remember_directive.get("memory_kind"),
+            intent=guard_intent or provided_intent,
             user_id=scope.get("user_id"),
             project_id=scope.get("project_id"),
             session_id=session_id,
@@ -299,10 +460,12 @@ def _tool_ask(args: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         pass
     if remember:
+        guard_intent = _require_action_intent(args, action="remember", error_prefix="ask")
         _write_routed_ask_memory(
             memory_text=f"Q: {question}\nA: {payload.get('answer_text','')}",
             question=question,
             trigger="remember_flag",
+            intent=guard_intent or provided_intent,
             user_id=scope.get("user_id"),
             project_id=scope.get("project_id"),
             session_id=session_id,
@@ -315,18 +478,24 @@ def _write_routed_ask_memory(
     question: str,
     trigger: str,
     preferred_kind: Optional[str] = None,
+    intent: Optional[str] = None,
     user_id: Optional[str] = None,
     project_id: Optional[str] = None,
     session_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     route = route_memory(memory_text, preferred_kind=preferred_kind)
     importance = 0.8 if str(route.get("memory_kind")) != "episodic" else 0.68
+    source_refs = {"kind": "ask_memory", "trigger": trigger, "question": question}
+    if intent:
+        source_refs["intent_action"] = "remember"
+        source_refs["intent_provided"] = intent
+        source_refs["intent_guard"] = "mcp_explicit_intent"
     return write_memory(
         memory_type=str(route.get("memory_type") or "working"),
         text=memory_text,
         topics=["ask", "remember"],
         entities=[],
-        source_refs={"kind": "ask_memory", "trigger": trigger, "question": question},
+        source_refs=source_refs,
         importance=importance,
         confidence=float(route.get("confidence") or 0.7),
         publish_long_term=False,
@@ -342,12 +511,19 @@ def _write_routed_ask_memory(
 
 def _tool_memory_write(args: Dict[str, Any]) -> Dict[str, Any]:
     scope = _parse_scope_arguments(args, error_prefix="memory_write")
+    action = "todo" if _is_todo_memory_write(args) else "write"
+    intent = _require_action_intent(args, action=action, error_prefix="memory_write")
+    source_refs = dict(args.get("source_refs") or {})
+    if intent:
+        source_refs.setdefault("intent_action", action)
+        source_refs.setdefault("intent_provided", intent)
+        source_refs.setdefault("intent_guard", "mcp_explicit_intent")
     return write_memory(
         memory_type=str(args["type"]),
         text=str(args["text"]),
         topics=args.get("topics") or [],
         entities=args.get("entities") or [],
-        source_refs=args.get("source_refs") or {},
+        source_refs=source_refs,
         importance=args.get("importance", 0.5),
         confidence=args.get("confidence", 0.7),
         expires_at=args.get("expires_at"),
@@ -471,9 +647,12 @@ def handle_request(req: Dict[str, Any]) -> Dict[str, Any]:
     method = req.get("method")
     params = req.get("params") or {}
     if method == "tools/list":
-        return {"tools": TOOLS}
+        return {"tools": _filter_tools_for_request(req, params)}
     if method == "tools/call":
         name = params.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("tools/call requires params.name")
+        _require_tool_allowed(name, req, params)
         args = params.get("arguments") or {}
         if name == "ingest_url":
             return _tool_ingest_url(args)
@@ -959,7 +1138,7 @@ def _intake_html() -> str:
       }
       setStatus("Saving memory...");
       try {
-        const result = await callTool("ask", { question: rememberPrompt(text) });
+        const result = await callTool("ask", { question: rememberPrompt(text), intent: "remember" });
         setOutput(result);
         setStatus("Memory saved.");
       } catch (err) {
@@ -984,6 +1163,7 @@ def _intake_html() -> str:
           source_refs: { kind: "intake_todo" },
           importance: 0.9,
           confidence: 0.9,
+          intent: "todo",
         });
         setOutput(result);
         setStatus("TODO saved.");

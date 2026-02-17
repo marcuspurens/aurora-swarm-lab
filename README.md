@@ -103,11 +103,13 @@ Input till `ask` normaliseras också (trim + whitespace-normalisering + maxläng
 Route-output saneras dessutom innan retrieval (whitelistade filter + clamp av `retrieve_top_k`).
 `run_log` skyddas mot stora payloads via `RUN_LOG_MAX_JSON_CHARS` och `RUN_LOG_MAX_ERROR_CHARS`.
 Valbart outbound PII-filter för LLM-prompts styrs via:
-`EGRESS_PII_POLICY=off|pseudonymize|redact`,
+`EGRESS_PII_POLICY=off|pseudonymize|redact` (default `redact`),
+`EGRESS_PII_FAIL_CLOSED` (default `1`, invalid mode fallbackar till `redact`),
 `EGRESS_PII_APPLY_TO_OLLAMA`,
 `EGRESS_PII_APPLY_TO_CHATGPT`,
 `EGRESS_PII_TOKEN_SALT` (för stabil pseudonymiseringstoken).
-`run_log` för route/analyze/synthesize innehåller nu `egress_policy_reason_codes` per request.
+`run_log` för route/analyze/synthesize innehåller audit-fält som `egress_policy_provider`, `egress_policy_mode`, `egress_policy_reason_codes`, `egress_policy_fail_closed`, `egress_policy_input_chars`, `egress_policy_output_chars`.
+Local file-ingest kör allowlist: sätt `AURORA_INGEST_PATH_ALLOWLIST` (kommaseparerade paths) och styr enforcement med `AURORA_INGEST_PATH_ALLOWLIST_ENFORCED`.
 
 ## Phase D (P3-14): Memory (MVP)
 1) Skriv minne
@@ -218,6 +220,10 @@ python -m app.cli.main mcp-server
 Tools: ingest_url, ingest_doc, ingest_youtube, ask, memory_write, memory_recall, memory_stats, memory_maintain, status.
 `ask`, `memory_write`, `memory_recall`, `memory_stats` och `memory_maintain` accepterar även `user_id`, `project_id`, `session_id` för scope-isolering.
 Om scope saknas i MCP-arguments används samma `.env` defaults (`AURORA_DEFAULT_*`).
+När `MCP_REQUIRE_EXPLICIT_INTENT=1` (default) kräver side-effect actions explicit `intent`:
+`ask` med remember-flöde -> `intent=remember`, `memory_write` TODO -> `intent=todo`, övrig `memory_write` -> `intent=write`.
+Valbar tool allowlist per klient/use-case:
+`MCP_TOOL_ALLOWLIST=*|tool1,tool2` och `MCP_TOOL_ALLOWLIST_BY_CLIENT="codex=ask,memory_recall;codex/intake=ingest_auto,ask,memory_write;@mobile=ask,memory_write"`.
 
 ## Codex Desktop as UI
 Codex Desktop kan vara ditt primära UI mot Aurora via MCP.

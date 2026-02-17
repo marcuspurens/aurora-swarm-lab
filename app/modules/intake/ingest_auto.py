@@ -11,6 +11,7 @@ from app.clients.youtube_client import get_video_info
 from app.core.ids import make_source_id, sha256_file
 from app.modules.intake.intake_url import compute_source_version as compute_url_version
 from app.modules.intake.intake_youtube import compute_source_version as compute_youtube_version
+from app.modules.security.ingest_allowlist import ensure_ingest_path_allowed
 from app.queue.jobs import enqueue_job
 
 
@@ -112,6 +113,7 @@ def enqueue_items(items: Iterable[str], base_dir: Optional[Path] = None) -> List
                 continue
             path = _resolve_file_input(item, base_dir)
             if path:
+                path = ensure_ingest_path_allowed(path, source="ingest_auto")
                 source_id = make_source_id("file", str(path))
                 source_version = sha256_file(path)
                 job_id = enqueue_job("ingest_doc", "io", source_id, source_version)

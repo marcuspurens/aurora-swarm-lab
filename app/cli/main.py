@@ -60,6 +60,7 @@ from app.modules.voiceprint.enroll import handle_job as handle_voiceprint_enroll
 from app.modules.voiceprint.match import handle_job as handle_voiceprint_match
 from app.modules.voiceprint.review import handle_job as handle_voiceprint_review
 from app.modules.audio.denoise_audio import handle_job as handle_denoise_audio
+from app.modules.security.ingest_allowlist import ensure_ingest_path_allowed
 
 
 def cmd_bootstrap_postgres(_args) -> None:
@@ -86,7 +87,7 @@ def cmd_enqueue_url(args) -> None:
 
 
 def cmd_enqueue_doc(args) -> None:
-    path = Path(args.path).resolve()
+    path = ensure_ingest_path_allowed(Path(args.path), source="cli.enqueue_doc")
     source_id = make_source_id("file", str(path))
     source_version = sha256_file(path)
     enqueue_job("ingest_doc", "io", source_id, source_version)
