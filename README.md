@@ -1,5 +1,12 @@
 # aurora-swarm-lab
 
+## Project Standards
+- License: `LICENSE`
+- Contributing guide: `CONTRIBUTING.md`
+- Security policy: `SECURITY.md`
+- Code of conduct: `CODE_OF_CONDUCT.md`
+- Changelog: `CHANGELOG.md`
+
 ## Avsiktsforklaring
 Bygger en lokal, modular AI-assistent pa Mac som kan koras och vaxa over tid.
 
