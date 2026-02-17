@@ -201,6 +201,25 @@ def test_mcp_context_handoff(tmp_path, monkeypatch):
     assert "Aurora Auto Handoff" in resp["text"]
 
 
+def test_mcp_intake_ui_has_action_buttons_and_explanations(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    init_db()
+
+    resp = server_main.handle_request(
+        {
+            "method": "resources/get",
+            "params": {"uri": "ui://intake"},
+        }
+    )
+    html = str(resp.get("content") or "")
+    assert "Importera" in html
+    assert "Fraga" in html
+    assert "Kom ihag" in html
+    assert "TODO" in html
+    assert "What the buttons mean" in html
+
+
 def test_mcp_ask_rejects_empty_question():
     with pytest.raises(ValueError, match="non-empty string"):
         server_main.handle_request(

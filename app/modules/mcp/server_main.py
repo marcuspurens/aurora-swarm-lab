@@ -703,6 +703,15 @@ def _intake_html() -> str:
       gap: 10px;
       flex-wrap: wrap;
     }
+    .guide {
+      display: grid;
+      gap: 8px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+    .guide b {
+      color: var(--ink);
+    }
   </style>
 </head>
 <body>
@@ -719,11 +728,22 @@ def _intake_html() -> str:
       <div class="actions">
         <button id="pick-files" class="secondary">Add files</button>
         <button id="pick-folder" class="secondary">Add folder</button>
-        <button id="submit">Ingest (auto)</button>
-        <button id="ask" class="secondary">Ask</button>
+        <button id="action-import">Importera</button>
+        <button id="action-ask" class="secondary">Fraga</button>
+        <button id="action-remember" class="secondary">Kom ihag</button>
+        <button id="action-todo" class="secondary">TODO</button>
         <button id="clear" class="secondary">Clear</button>
       </div>
       <div class="status" id="status">Ready.</div>
+    </div>
+    <div class="card grid">
+      <strong>What the buttons mean</strong>
+      <div class="guide">
+        <div><b>Importera:</b> Indexes pasted links/files into Aurora knowledge base.</div>
+        <div><b>Fraga:</b> Asks Aurora a question using current text as the prompt.</div>
+        <div><b>Kom ihag:</b> Saves text as memory via Aurora remember flow.</div>
+        <div><b>TODO:</b> Saves text as a TODO memory item so you can recall it later.</div>
+      </div>
     </div>
     <div class="card grid">
       <div>
@@ -738,8 +758,10 @@ def _intake_html() -> str:
       <strong>What do you want to do?</strong>
       <p>Choose how to process the pasted text.</p>
       <div class="modal-actions">
-        <button id="prompt-ingest">Ingest (auto)</button>
-        <button id="prompt-ask" class="secondary">Ask</button>
+        <button id="prompt-import">Importera</button>
+        <button id="prompt-ask" class="secondary">Fraga</button>
+        <button id="prompt-remember" class="secondary">Kom ihag</button>
+        <button id="prompt-todo" class="secondary">TODO</button>
         <button id="prompt-cancel" class="secondary">Cancel</button>
       </div>
     </div>
@@ -748,16 +770,20 @@ def _intake_html() -> str:
     const statusEl = document.getElementById("status");
     const outputEl = document.getElementById("output");
     const inputEl = document.getElementById("input");
-    const submitBtn = document.getElementById("submit");
-    const askBtn = document.getElementById("ask");
+    const importBtn = document.getElementById("action-import");
+    const askBtn = document.getElementById("action-ask");
+    const rememberBtn = document.getElementById("action-remember");
+    const todoBtn = document.getElementById("action-todo");
     const clearBtn = document.getElementById("clear");
     const pickFilesBtn = document.getElementById("pick-files");
     const pickFolderBtn = document.getElementById("pick-folder");
     const filePicker = document.getElementById("file-picker");
     const folderPicker = document.getElementById("folder-picker");
     const promptEl = document.getElementById("prompt");
-    const promptIngest = document.getElementById("prompt-ingest");
+    const promptImport = document.getElementById("prompt-import");
     const promptAsk = document.getElementById("prompt-ask");
+    const promptRemember = document.getElementById("prompt-remember");
+    const promptTodo = document.getElementById("prompt-todo");
     const promptCancel = document.getElementById("prompt-cancel");
     let dragDepth = 0;
 
@@ -914,6 +940,59 @@ def _intake_html() -> str:
       }
     }
 
+    function rememberPrompt(text) {
+      const value = String(text || "").trim();
+      if (!value) {
+        return "";
+      }
+      if (/^(remember(?:\\s+this|\\s+that)?|kom\\s+ih[ag](?:\\s+(?:detta|det\\s+har))?)\\s*[:\\-]?/i.test(value)) {
+        return value;
+      }
+      return `kom ihag detta: ${value}`;
+    }
+
+    async function doRemember() {
+      const text = inputEl.value.trim();
+      if (!text) {
+        setStatus("Paste memory text first.");
+        return;
+      }
+      setStatus("Saving memory...");
+      try {
+        const result = await callTool("ask", { question: rememberPrompt(text) });
+        setOutput(result);
+        setStatus("Memory saved.");
+      } catch (err) {
+        setOutput({ error: String(err) });
+        setStatus("Unable to call MCP tool.");
+      }
+    }
+
+    async function doTodo() {
+      const text = inputEl.value.trim();
+      if (!text) {
+        setStatus("Paste TODO text first.");
+        return;
+      }
+      const todoText = /^todo:/i.test(text) ? text : `TODO: ${text}`;
+      setStatus("Saving TODO...");
+      try {
+        const result = await callTool("memory_write", {
+          type: "working",
+          text: todoText,
+          topics: ["todo", "intake_ui"],
+          source_refs: { kind: "intake_todo" },
+          importance: 0.9,
+          confidence: 0.9,
+        });
+        setOutput(result);
+        setStatus("TODO saved.");
+      } catch (err) {
+        setOutput({ error: String(err) });
+        setStatus("Unable to call MCP tool.");
+      }
+    }
+
     function openPrompt() {
       promptEl.classList.add("active");
     }
@@ -959,8 +1038,10 @@ def _intake_html() -> str:
       }
     });
 
-    submitBtn.addEventListener("click", doIngest);
+    importBtn.addEventListener("click", doIngest);
     askBtn.addEventListener("click", doAsk);
+    rememberBtn.addEventListener("click", doRemember);
+    todoBtn.addEventListener("click", doTodo);
     pickFilesBtn.addEventListener("click", () => filePicker.click());
     pickFolderBtn.addEventListener("click", () => folderPicker.click());
     filePicker.addEventListener("change", () => {
@@ -971,13 +1052,21 @@ def _intake_html() -> str:
       addFromPicker(folderPicker.files);
       folderPicker.value = "";
     });
-    promptIngest.addEventListener("click", async () => {
+    promptImport.addEventListener("click", async () => {
       closePrompt();
       await doIngest();
     });
     promptAsk.addEventListener("click", async () => {
       closePrompt();
       await doAsk();
+    });
+    promptRemember.addEventListener("click", async () => {
+      closePrompt();
+      await doRemember();
+    });
+    promptTodo.addEventListener("click", async () => {
+      closePrompt();
+      await doTodo();
     });
     promptCancel.addEventListener("click", closePrompt);
 
