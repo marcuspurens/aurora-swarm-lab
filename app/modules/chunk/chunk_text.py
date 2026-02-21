@@ -76,6 +76,35 @@ def handle_job(job: Dict[str, object]) -> None:
     )
 
     chunks = chunk(text, doc_id=source_id)
+    metadata = manifest.get("metadata")
+    intake_meta = metadata.get("intake") if isinstance(metadata, dict) else None
+    if isinstance(intake_meta, dict):
+        tags = intake_meta.get("tags")
+        context = str(intake_meta.get("context") or "").strip()
+        source_metadata = intake_meta.get("source_metadata")
+        context_ref = context[:280] if context else ""
+        speaker = ""
+        organization = ""
+        event_date = ""
+        if isinstance(source_metadata, dict):
+            speaker = str(source_metadata.get("speaker") or "").strip()
+            organization = str(source_metadata.get("organization") or "").strip()
+            event_date = str(source_metadata.get("event_date") or "").strip()
+        for row in chunks:
+            refs = row.get("source_refs")
+            if not isinstance(refs, dict):
+                refs = {}
+            if isinstance(tags, list) and tags:
+                refs["intake_tags"] = [str(tag) for tag in tags if str(tag).strip()]
+            if context_ref:
+                refs["intake_context"] = context_ref
+            if speaker:
+                refs["intake_speaker"] = speaker
+            if organization:
+                refs["intake_organization"] = organization
+            if event_date:
+                refs["intake_event_date"] = event_date
+            row["source_refs"] = refs
     lines = "\n".join(json.dumps(c, ensure_ascii=True) for c in chunks)
     write_artifact(source_id, source_version, CHUNKS_REL_PATH, lines)
 

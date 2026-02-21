@@ -2,21 +2,18 @@
 
 from __future__ import annotations
 
+import json
 from typing import List, Dict
 
 from app.clients.ollama_client import generate_json
 from app.core.config import load_settings
 from app.core.models import InitiativeInput, InitiativeScore
+from app.core.prompts import render_prompt
 from app.queue.logs import log_run
 
 
 def _prompt(item: InitiativeInput) -> str:
-    return (
-        "Return ONLY valid JSON with keys: initiative_id, title, scores, overall_score, rationale, citations. "
-        "scores should be an object with numeric fields: value, feasibility, risk, alignment, time_to_value. "
-        "overall_score is 0-100. rationale is a short paragraph. citations optional.\n\n"
-        f"Initiative:\n{item.model_dump()}\n"
-    )
+    return render_prompt("initiative_score", initiative_json=json.dumps(item.model_dump(), ensure_ascii=True))
 
 
 def score(initiatives: List[Dict]) -> List[Dict]:

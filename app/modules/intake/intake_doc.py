@@ -40,26 +40,35 @@ def ingest_doc(path: str, source_id: str, source_version: str) -> Dict[str, obje
     write_artifact_bytes(source_id, source_version, raw_rel, file_path.read_bytes())
     write_artifact(source_id, source_version, CANONICAL_TEXT_PATH, text)
 
-    manifest = {
-        "source_id": source_id,
-        "source_version": source_version,
-        "source_type": "file",
-        "source_uri": str(file_path),
-        "artifacts": {
+    manifest = dict(existing or {})
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, dict):
+        artifacts = {}
+    artifacts.update(
+        {
             "raw_doc": raw_rel,
             "canonical_text": CANONICAL_TEXT_PATH,
-        },
-        "stats": {
-            "text_chars": len(text),
-            "text_words": len(text.split()) if text else 0,
-        },
-        "updated_at": utc_now().isoformat(),
-        "steps": {
-            "ingest_doc": {
-                "status": "done",
-            }
-        },
-    }
+        }
+    )
+    steps = manifest.get("steps")
+    if not isinstance(steps, dict):
+        steps = {}
+    steps["ingest_doc"] = {"status": "done"}
+    manifest.update(
+        {
+            "source_id": source_id,
+            "source_version": source_version,
+            "source_type": "file",
+            "source_uri": str(file_path),
+            "artifacts": artifacts,
+            "stats": {
+                "text_chars": len(text),
+                "text_words": len(text.split()) if text else 0,
+            },
+            "updated_at": utc_now().isoformat(),
+            "steps": steps,
+        }
+    )
     upsert_manifest(source_id, source_version, manifest)
     enqueue_job("chunk_text", "oss20b", source_id, source_version)
     return manifest

@@ -9,6 +9,7 @@ from app.core.ids import sha256_text
 from app.core.manifest import get_manifest, upsert_manifest
 from app.core.storage import write_artifact
 from app.core.timeutil import utc_now
+from app.modules.graph.ontology_rules import canonical_default_rules, canonical_rules, normalize_entity_type
 from app.modules.voiceprint.gallery import load_gallery
 from app.queue.logs import log_run
 from app.queue.jobs import enqueue_job
@@ -166,10 +167,27 @@ def handle_job(job: Dict[str, object]) -> None:
     ent_lines = "\n".join(json.dumps(e, ensure_ascii=True) for e in entities)
     rel_lines = "\n".join(json.dumps(r, ensure_ascii=True) for r in relations)
     clm_lines = "\n".join(json.dumps(c, ensure_ascii=True) for c in claims)
-    ontology = [
-        {"predicate": "describes", "domain_type": "Person", "range_type": "Entity", "description": "Person describes EBUCore node"},
-        {"predicate": "affiliated_with", "domain_type": "Person", "range_type": "Organisation", "description": "Person affiliation"},
-    ]
+    entity_type_by_id = {
+        str(item.get("entity_id") or ""): normalize_entity_type(item.get("type") or "Entity")
+        for item in entities
+        if str(item.get("entity_id") or "").strip()
+    }
+    dynamic_rules: List[Dict[str, object]] = []
+    for rel in relations:
+        predicate = str(rel.get("predicate") or "").strip()
+        if not predicate:
+            continue
+        subj_type = entity_type_by_id.get(str(rel.get("subj_entity_id") or ""), "Entity")
+        obj_type = entity_type_by_id.get(str(rel.get("obj_entity_id") or ""), "Entity")
+        dynamic_rules.append(
+            {
+                "predicate": predicate,
+                "domain_type": subj_type,
+                "range_type": obj_type,
+                "description": "Auto-discovered from voice gallery graph extraction",
+            }
+        )
+    ontology = canonical_rules(canonical_default_rules() + dynamic_rules)
 
     write_artifact(source_id, source_version, ENTITIES_REL_PATH, ent_lines)
     write_artifact(source_id, source_version, RELATIONS_REL_PATH, rel_lines)

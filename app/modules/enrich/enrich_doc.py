@@ -9,6 +9,7 @@ from app.clients.ollama_client import generate_json
 from app.core.config import load_settings
 from app.core.manifest import get_manifest, upsert_manifest
 from app.core.models import EnrichDocOutput
+from app.core.prompts import render_prompt
 from app.core.storage import artifact_path, read_artifact, write_artifact
 from app.core.timeutil import utc_now
 from app.queue.logs import log_run
@@ -18,13 +19,7 @@ SUMMARY_REL_PATH = "enrich/doc_summary.json"
 
 
 def _prompt(text: str) -> str:
-    return (
-        "You are a helpful assistant. Return ONLY valid JSON with keys: "
-        "summary_short, summary_long, topics, entities. "
-        "summary_short should be 1-2 sentences. summary_long 3-6 sentences. "
-        "topics and entities are arrays of short strings.\n\n"
-        f"Text:\n{text}\n"
-    )
+    return render_prompt("enrich_doc", text=text)
 
 
 def enrich(text: str) -> EnrichDocOutput:

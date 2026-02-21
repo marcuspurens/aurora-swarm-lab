@@ -9,6 +9,7 @@ from app.clients.ollama_client import generate_json
 from app.core.config import load_settings
 from app.core.manifest import get_manifest, upsert_manifest
 from app.core.models import ChunkEnrichOutput
+from app.core.prompts import render_prompt
 from app.core.storage import artifact_path, read_artifact, write_artifact
 from app.core.timeutil import utc_now
 from app.queue.jobs import enqueue_job
@@ -30,11 +31,7 @@ def _load_chunks(text: str) -> List[Dict[str, object]]:
 
 
 def _prompt(text: str) -> str:
-    return (
-        "Return ONLY valid JSON with keys: topics, entities. "
-        "topics and entities are arrays of short strings.\n\n"
-        f"Text:\n{text}\n"
-    )
+    return render_prompt("enrich_chunks", text=text)
 
 
 def enrich_chunk(text: str) -> ChunkEnrichOutput:

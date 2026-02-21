@@ -9,10 +9,12 @@ from app.clients.snowflake_client import SnowflakeClient
 from app.core.manifest import get_manifest, upsert_manifest
 from app.core.storage import read_artifact, write_artifact
 from app.core.timeutil import utc_now
+from app.modules.graph.ontology_rules import normalize_entity_type, validate_relations
 from app.queue.logs import log_run
 
 
 RECEIPT_REL_PATH = "graph/publish_receipt.json"
+VALIDATION_REL_PATH = "graph/validation_report.json"
 
 
 def _load_jsonl(text: str) -> List[Dict[str, object]]:
@@ -80,6 +82,23 @@ def handle_job(job: Dict[str, object]) -> None:
     relations = _load_jsonl(rel_text)
     claims = _load_jsonl(clm_text)
     ontology = json.loads(ont_text)
+    entity_types = {
+        str(e.get("entity_id") or ""): normalize_entity_type(e.get("type") or "Entity")
+        for e in entities
+        if str(e.get("entity_id") or "").strip()
+    }
+    entity_types[str(source_id)] = "Document"
+    for row in relations:
+        doc_id = str(row.get("doc_id") or "").strip()
+        if doc_id:
+            entity_types[doc_id] = "Document"
+    for row in claims:
+        doc_id = str(row.get("doc_id") or "").strip()
+        if doc_id:
+            entity_types[doc_id] = "Document"
+    validation = validate_relations(relations, entity_types=entity_types, rules=ontology if isinstance(ontology, list) else [])
+    valid_relations = list(validation.get("valid_relations") or [])
+    invalid_relations = list(validation.get("invalid_relations") or [])
 
     ent_sql = _merge_sql(
         "ENTITIES",
@@ -121,7 +140,7 @@ def handle_job(job: Dict[str, object]) -> None:
                 "confidence": r.get("confidence", 0.5),
                 "updated_at": utc_now().isoformat(),
             }
-            for r in relations
+            for r in valid_relations
         ],
         ["REL_ID"],
     )
@@ -164,6 +183,7 @@ def handle_job(job: Dict[str, object]) -> None:
         "relations_sql": rel_sql,
         "claims_sql": clm_sql,
         "ontology_sql": ont_sql,
+        "validation_summary": validation.get("summary") or {},
         "error": None,
     }
 
@@ -173,14 +193,29 @@ def handle_job(job: Dict[str, object]) -> None:
         input_json={"source_id": source_id, "source_version": source_version},
     )
 
-    try:
-        client = SnowflakeClient()
-        client.execute_sql(ent_sql)
-        client.execute_sql(rel_sql)
-        client.execute_sql(clm_sql)
-        client.execute_sql(ont_sql)
-    except Exception as exc:
-        receipt["error"] = str(exc)
+    if invalid_relations:
+        report = {
+            "summary": validation.get("summary") or {},
+            "invalid_relations": invalid_relations,
+            "source_id": source_id,
+            "source_version": source_version,
+            "updated_at": utc_now().isoformat(),
+        }
+        write_artifact(source_id, source_version, VALIDATION_REL_PATH, json.dumps(report, ensure_ascii=True))
+        manifest.setdefault("artifacts", {})["graph_validation_report"] = VALIDATION_REL_PATH
+        receipt["error"] = (
+            f"Ontology validation failed: invalid_relations={len(invalid_relations)}. "
+            "Graph publish blocked (fail-closed)."
+        )
+    else:
+        try:
+            client = SnowflakeClient()
+            client.execute_sql(ent_sql)
+            client.execute_sql(rel_sql)
+            client.execute_sql(clm_sql)
+            client.execute_sql(ont_sql)
+        except Exception as exc:
+            receipt["error"] = str(exc)
 
     write_artifact(source_id, source_version, RECEIPT_REL_PATH, json.dumps(receipt, ensure_ascii=True))
     manifest.setdefault("artifacts", {})["graph_publish_receipt"] = RECEIPT_REL_PATH

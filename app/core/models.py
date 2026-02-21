@@ -101,3 +101,9 @@ class GraphEntitiesOutput(BaseModel):
 
 class GraphRelationsOutput(BaseModel):
     relations: List[GraphRelation] = Field(default_factory=list)
+
+
+class TranscriptMarkdownOutput(BaseModel):
+    cleaned_transcript: str
+    summary_short: str
+    summary_long: str

@@ -8,19 +8,13 @@ from app.core.textnorm import normalize_identifier, normalize_user_text
 from app.clients.ollama_client import generate_json
 from app.core.config import load_settings
 from app.core.models import RouteOutput
+from app.core.prompts import render_prompt
 from app.modules.privacy.egress_policy import apply_egress_policy
 from app.queue.logs import log_run
 
 
 def _prompt(question: str) -> str:
-    return (
-        "Return ONLY valid JSON with keys: intent, filters, retrieve_top_k, "
-        "need_strong_model, reason. "
-        "filters may include: topics (array), entities (array), source_type, "
-        "memory_type, memory_kind, user_id, project_id, session_id, date_from, date_to. "
-        "retrieve_top_k should be an integer. need_strong_model is boolean.\n\n"
-        f"Question:\n{question}\n"
-    )
+    return render_prompt("swarm_route", question=question)
 
 
 def route_question(question: str) -> RouteOutput:

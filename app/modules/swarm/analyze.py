@@ -7,6 +7,7 @@ from typing import List, Dict
 from app.clients.ollama_client import generate_json
 from app.core.config import load_settings
 from app.core.models import AnalyzeOutput
+from app.core.prompts import render_prompt
 from app.core.textnorm import normalize_user_text
 from app.modules.privacy.egress_policy import apply_egress_policy
 from app.modules.swarm.prompt_format import serialize_for_prompt
@@ -18,12 +19,7 @@ def analyze(question: str, evidence: List[Dict]) -> AnalyzeOutput:
     question = normalize_user_text(raw_question, max_len=2400)
     evidence_json, evidence_meta = serialize_for_prompt(evidence, max_chars=9000, max_list_items=18, max_text_chars=650)
     settings = load_settings()
-    prompt = (
-        "Return ONLY valid JSON with keys: claims, timeline, open_questions. "
-        "Each should be an array of strings. Use the evidence.\n\n"
-        f"Question:\n{question}\n\n"
-        f"Evidence:\n{evidence_json}\n"
-    )
+    prompt = render_prompt("swarm_analyze", question=question, evidence_json=evidence_json)
     egress = apply_egress_policy(prompt, provider="ollama")
     run_id = log_run(
         lane="nemotron",

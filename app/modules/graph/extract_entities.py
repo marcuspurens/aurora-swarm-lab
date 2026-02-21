@@ -10,6 +10,7 @@ from app.core.config import load_settings
 from app.core.ids import sha256_text
 from app.core.manifest import get_manifest, upsert_manifest
 from app.core.models import GraphEntitiesOutput, GraphEntity, GraphClaim
+from app.core.prompts import render_prompt
 from app.core.storage import artifact_path, read_artifact, write_artifact
 from app.core.timeutil import utc_now
 from app.queue.logs import log_run
@@ -31,13 +32,7 @@ def _load_chunks(text: str) -> List[Dict[str, object]]:
 
 
 def _prompt(text: str) -> str:
-    return (
-        "Return ONLY valid JSON with keys: entities, claims. "
-        "entities is a list of {entity_id, name, type, aliases, metadata}. "
-        "claims is a list of {claim_id, claim_text, doc_id, segment_id, confidence}. "
-        "Use doc_id and segment_id from the input when available.\n\n"
-        f"Input:\n{text}\n"
-    )
+    return render_prompt("graph_extract_entities", input_json=text)
 
 
 def _ensure_ids(entities: List[Dict[str, object]], claims: List[Dict[str, object]]) -> None:

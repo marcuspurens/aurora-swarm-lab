@@ -7,6 +7,7 @@ from typing import List, Dict, Optional
 from app.clients.ollama_client import generate_json
 from app.core.config import load_settings
 from app.core.models import SynthesizeOutput, SynthesizeCitation, AnalyzeOutput
+from app.core.prompts import render_prompt
 from app.core.textnorm import normalize_user_text
 from app.modules.privacy.egress_policy import apply_egress_policy
 from app.modules.swarm.prompt_format import serialize_for_prompt
@@ -30,13 +31,11 @@ def synthesize(
         max_list_items=20,
         max_text_chars=500,
     )
-    prompt = (
-        "Return ONLY valid JSON with keys: answer_text, citations. "
-        "citations is an array of objects with doc_id, segment_id, start_ms, end_ms. "
-        "Use evidence and analysis if provided.\n\n"
-        f"Question:\n{question}\n\n"
-        f"Evidence:\n{evidence_json}\n\n"
-        f"Analysis:\n{analysis_json}\n"
+    prompt = render_prompt(
+        "swarm_synthesize",
+        question=question,
+        evidence_json=evidence_json,
+        analysis_json=analysis_json,
     )
     egress = apply_egress_policy(prompt, provider="ollama")
     run_id = log_run(

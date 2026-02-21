@@ -34,6 +34,7 @@ from app.modules.memory.context_handoff import (
     record_turn_and_refresh,
 )
 from app.modules.intake.intake_obsidian import watch_vault
+from app.modules.intake.intake_dropbox import watch_dropboxes
 from app.modules.initiatives.pipeline import run_pipeline_from_json
 from app.modules.intake.intake_url import compute_source_version as compute_url_version
 from app.modules.intake.intake_url import handle_job as handle_url_job
@@ -42,6 +43,7 @@ from app.modules.intake.intake_youtube import compute_source_version as compute_
 from app.clients.youtube_client import get_video_info
 from app.modules.intake.intake_youtube import handle_job as handle_youtube_job
 from app.modules.transcribe.transcribe_whisper_cli import handle_job as handle_transcribe_job
+from app.modules.transcribe.transcript_markdown import handle_job as handle_transcript_markdown
 from app.modules.chunk.chunk_text import handle_job as handle_chunk_text
 from app.modules.chunk.chunk_transcript import handle_job as handle_chunk_transcript
 from app.modules.embeddings.embed_chunks import handle_job as handle_embed_chunks
@@ -112,6 +114,7 @@ def cmd_worker(args) -> None:
         "ingest_doc": handle_doc_job,
         "ingest_youtube": handle_youtube_job,
         "transcribe_whisper": handle_transcribe_job,
+        "transcript_markdown": handle_transcript_markdown,
         "chunk_text": handle_chunk_text,
         "chunk_transcript": handle_chunk_transcript,
         "embed_chunks": handle_embed_chunks,
@@ -358,6 +361,7 @@ def main() -> int:
     sub.add_parser("context-handoff")
 
     sub.add_parser("obsidian-watch")
+    sub.add_parser("dropbox-watch")
 
     p_initiatives = sub.add_parser("score-initiatives")
     p_initiatives.add_argument("--input", required=True, help="Path to JSON list of initiatives")
@@ -459,6 +463,8 @@ def main() -> int:
         print(handoff["text"])
     elif args.cmd == "obsidian-watch":
         watch_vault()
+    elif args.cmd == "dropbox-watch":
+        watch_dropboxes()
     elif args.cmd == "score-initiatives":
         result = run_pipeline_from_json(args.input)
         print(f"scored={len(result['scores'])} published={result['receipt'].get('error') is None}")
