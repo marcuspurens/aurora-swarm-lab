@@ -1,6 +1,7 @@
 import pytest
 
 from app.core.models import RouteOutput, SynthesizeOutput
+from app.core.manifest import get_manifest
 from app.modules.mcp import server_main
 from app.modules.memory.memory_recall import recall
 from app.queue.db import init_db
@@ -16,6 +17,8 @@ def test_mcp_tools_list(tmp_path, monkeypatch):
     ask_tool = next((tool for tool in resp["tools"] if tool.get("name") == "ask"), {})
     memory_stats_tool = next((tool for tool in resp["tools"] if tool.get("name") == "memory_stats"), {})
     memory_maintain_tool = next((tool for tool in resp["tools"] if tool.get("name") == "memory_maintain"), {})
+    dashboard_open_tool = next((tool for tool in resp["tools"] if tool.get("name") == "dashboard_open"), {})
+    ingest_auto_tool = next((tool for tool in resp["tools"] if tool.get("name") == "ingest_auto"), {})
     properties = ask_tool.get("input_schema", {}).get("properties", {})
     memory_write_properties = next(
         (tool for tool in resp["tools"] if tool.get("name") == "memory_write"),
@@ -28,9 +31,25 @@ def test_mcp_tools_list(tmp_path, monkeypatch):
     assert "intent" in memory_write_properties
     assert memory_stats_tool.get("name") == "memory_stats"
     assert memory_maintain_tool.get("name") == "memory_maintain"
+    assert dashboard_open_tool.get("name") == "dashboard_open"
     assert properties["question"]["minLength"] == 1
     assert properties["question"]["maxLength"] == 2400
     assert properties["session_id"]["maxLength"] == 120
+    assert "inputSchema" in ask_tool
+    ingest_props = ingest_auto_tool.get("input_schema", {}).get("properties", {})
+    assert "tags" in ingest_props
+    assert "context" in ingest_props
+    assert "speaker" in ingest_props
+    assert "organization" in ingest_props
+    assert "event_date" in ingest_props
+    assert "source_metadata" in ingest_props
+
+
+def test_mcp_initialize_response():
+    resp = server_main.handle_request({"method": "initialize", "params": {}})
+    assert resp["protocolVersion"]
+    assert "capabilities" in resp
+    assert resp["serverInfo"]["name"] == "aurora-swarm-lab"
 
 
 def test_mcp_memory_write_and_recall(tmp_path, monkeypatch):
@@ -189,10 +208,122 @@ def test_mcp_ingest_auto_doc(tmp_path, monkeypatch):
     resp = server_main.handle_request(
         {
             "method": "tools/call",
-            "params": {"name": "ingest_auto", "arguments": {"text": str(doc)}},
+            "params": {
+                "name": "ingest_auto",
+                "arguments": {"text": str(doc), "tags": ["alpha", "beta"], "context": "Known project note"},
+            },
         }
     )
-    assert resp["items"][0]["result"]["job_id"]
+    result = resp["items"][0]["result"]
+    assert result["job_id"]
+    manifest = get_manifest(result["source_id"], result["source_version"])
+    assert manifest is not None
+    intake = ((manifest.get("metadata") or {}).get("intake") or {})
+    assert intake.get("tags") == ["alpha", "beta"]
+    assert intake.get("context") == "Known project note"
+
+
+def test_mcp_ingest_auto_doc_with_structured_metadata(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    monkeypatch.setenv("AURORA_INGEST_PATH_ALLOWLIST", str(tmp_path))
+    init_db()
+
+    doc = tmp_path / "doc.txt"
+    doc.write_text("hello", encoding="utf-8")
+
+    resp = server_main.handle_request(
+        {
+            "method": "tools/call",
+            "params": {
+                "name": "ingest_auto",
+                "arguments": {
+                    "text": str(doc),
+                    "speaker": "Philipp Roth",
+                    "organization": "ORF",
+                    "event_date": "2025-06-24",
+                    "source_metadata": {"organization_uri": "https://en.wikipedia.org/wiki/ORF_(broadcaster)"},
+                },
+            },
+        }
+    )
+    result = resp["items"][0]["result"]
+    manifest = get_manifest(result["source_id"], result["source_version"])
+    assert manifest is not None
+    metadata = manifest.get("metadata") or {}
+    intake = metadata.get("intake") or {}
+    source_metadata = intake.get("source_metadata") or {}
+    assert source_metadata.get("speaker") == "Philipp Roth"
+    assert source_metadata.get("organization") == "ORF"
+    assert source_metadata.get("event_date") == "2025-06-24"
+
+    ebucore_plus = metadata.get("ebucore_plus") or {}
+    assert (ebucore_plus.get("speaker") or {}).get("name") == "Philipp Roth"
+    assert (ebucore_plus.get("organization") or {}).get("name") == "ORF"
+
+
+def test_mcp_obsidian_tools_list_and_enqueue(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    vault = tmp_path / "vault"
+    vault.mkdir(parents=True, exist_ok=True)
+    note = vault / "Aurora Inbox" / "daily.md"
+    note.parent.mkdir(parents=True, exist_ok=True)
+    note.write_text(
+        """---
+aurora_auto: true
+---
+Some pasted note content.
+""",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(vault))
+    init_db()
+
+    status_resp = server_main.handle_request(
+        {"method": "tools/call", "params": {"name": "obsidian_watch_status", "arguments": {}}}
+    )
+    assert status_resp["configured"] is True
+    assert status_resp["vault_exists"] is True
+
+    list_resp = server_main.handle_request(
+        {
+            "method": "tools/call",
+            "params": {"name": "obsidian_list_notes", "arguments": {"folder": "Aurora Inbox", "limit": 10}},
+        }
+    )
+    assert list_resp["count"] >= 1
+    assert any(item["path"] == "Aurora Inbox/daily.md" for item in list_resp["notes"])
+
+    enqueue_resp = server_main.handle_request(
+        {
+            "method": "tools/call",
+            "params": {"name": "obsidian_enqueue_note", "arguments": {"note_path": "Aurora Inbox/daily.md"}},
+        }
+    )
+    assert enqueue_resp["note_rel_path"] == "Aurora Inbox/daily.md"
+    assert enqueue_resp["result"]["job_type"] == "ingest_doc"
+
+
+def test_mcp_obsidian_enqueue_rejects_path_outside_vault(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    vault = tmp_path / "vault"
+    vault.mkdir(parents=True, exist_ok=True)
+    outside_note = tmp_path / "outside.md"
+    outside_note.write_text("# outside", encoding="utf-8")
+
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(vault))
+    init_db()
+
+    with pytest.raises(PermissionError, match="outside configured Obsidian vault"):
+        server_main.handle_request(
+            {
+                "method": "tools/call",
+                "params": {"name": "obsidian_enqueue_note", "arguments": {"note_path": str(outside_note)}},
+            }
+        )
 
 
 def test_mcp_context_handoff(tmp_path, monkeypatch):
@@ -228,6 +359,49 @@ def test_mcp_intake_ui_has_action_buttons_and_explanations(tmp_path, monkeypatch
     assert "Kom ihag" in html
     assert "TODO" in html
     assert "What the buttons mean" in html
+    assert ".action-btn.selected" in html
+    assert "markSelected" in html
+
+
+def test_mcp_dashboard_ui_resource(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    init_db()
+
+    resp = server_main.handle_request(
+        {
+            "method": "resources/get",
+            "params": {"uri": "ui://dashboard"},
+        }
+    )
+    html = str(resp.get("content") or "")
+    assert "Aurora Dashboard" in html
+    assert "dashboard_timeseries" in html
+    assert "dashboard_alerts" in html
+    assert "dashboard_models" in html
+
+
+def test_mcp_dashboard_open_tool():
+    resp = server_main.handle_request({"method": "tools/call", "params": {"name": "dashboard_open", "arguments": {}}})
+    assert resp["resource_uri"] == "ui://dashboard"
+
+
+def test_mcp_resources_read_alias_returns_mcp_content_shape(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    init_db()
+
+    resp = server_main.handle_request(
+        {
+            "method": "resources/read",
+            "params": {"uri": "ui://intake"},
+        }
+    )
+    contents = resp.get("contents") or []
+    assert contents
+    assert contents[0]["uri"] == "ui://intake"
+    assert contents[0]["mimeType"] == "text/html"
+    assert "<title>Aurora Intake</title>" in contents[0]["text"]
 
 
 def test_mcp_ask_rejects_empty_question():
@@ -522,3 +696,118 @@ def test_mcp_tool_allowlist_by_client_filters_and_blocks(tmp_path, monkeypatch):
                 "params": {"client_id": "codex", "name": "status", "arguments": {}},
             }
         )
+
+
+def test_mcp_dashboard_stats_returns_progress_and_counts(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    init_db()
+
+    server_main.handle_request(
+        {
+            "method": "tools/call",
+            "params": {
+                "name": "memory_write",
+                "arguments": {"type": "working", "text": "dashboard memory", "intent": "write"},
+            },
+        }
+    )
+
+    resp = server_main.handle_request(
+        {
+            "method": "tools/call",
+            "params": {
+                "name": "dashboard_stats",
+                "arguments": {"target_docs": 10, "target_vectors": 100, "target_memory": 5},
+            },
+        }
+    )
+    assert "counts" in resp
+    assert "progress" in resp
+    assert resp["targets"]["docs"] == 10
+    assert resp["targets"]["vectors"] == 100
+    assert resp["targets"]["memory"] == 5
+    assert resp["counts"]["memory_total"] >= 1
+    assert resp["progress"]["memory_percent"] >= 0
+
+
+def test_mcp_dashboard_timeseries_returns_buckets(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    init_db()
+
+    resp = server_main.handle_request(
+        {
+            "method": "tools/call",
+            "params": {
+                "name": "dashboard_timeseries",
+                "arguments": {"window_hours": 6, "bucket_minutes": 30},
+            },
+        }
+    )
+    assert resp["window_hours"] == 6
+    assert resp["bucket_minutes"] == 30
+    assert isinstance(resp["buckets"], list)
+    assert resp["buckets"]
+    first = resp["buckets"][0]
+    assert "docs_ingested" in first
+    assert "vectors_built" in first
+    assert "memory_written" in first
+
+
+def test_mcp_dashboard_alerts_returns_summary_and_alerts(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    init_db()
+
+    resp = server_main.handle_request(
+        {
+            "method": "tools/call",
+            "params": {"name": "dashboard_alerts", "arguments": {"stale_running_minutes": 5, "error_window_hours": 12}},
+        }
+    )
+    assert "summary" in resp
+    assert "alerts" in resp
+    assert isinstance(resp["alerts"], list)
+    assert resp["alerts"]
+
+
+def test_mcp_dashboard_models_returns_summary(tmp_path, monkeypatch):
+    db_path = tmp_path / "queue.db"
+    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+    init_db()
+
+    monkeypatch.setattr(
+        server_main,
+        "route_question",
+        lambda q: RouteOutput(intent="ask", filters={}, retrieve_top_k=2, need_strong_model=False, reason="ok"),
+    )
+    monkeypatch.setattr(
+        server_main,
+        "retrieve",
+        lambda question, limit=10, filters=None: [
+            {"doc_id": "d1", "segment_id": "s1", "text_snippet": "a"},
+            {"doc_id": "d2", "segment_id": "s2", "text_snippet": "b"},
+        ],
+    )
+    monkeypatch.setattr(server_main, "graph_retrieve", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(server_main, "record_turn_and_refresh", lambda **_kwargs: None)
+    monkeypatch.setattr(server_main, "synthesize", lambda *_args, **_kwargs: SynthesizeOutput(answer_text="ok", citations=[]))
+
+    server_main.handle_request(
+        {
+            "method": "tools/call",
+            "params": {"name": "ask", "arguments": {"question": "test model stats"}},
+        }
+    )
+
+    resp = server_main.handle_request(
+        {
+            "method": "tools/call",
+            "params": {"name": "dashboard_models", "arguments": {"window_hours": 24}},
+        }
+    )
+    assert "summary" in resp
+    assert "models" in resp
+    assert "codex_usage" in resp
+    assert resp["summary"]["requests"] >= 0
