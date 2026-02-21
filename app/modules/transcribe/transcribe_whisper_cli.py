@@ -28,12 +28,10 @@ def transcribe_and_store(source_id: str, source_version: str, audio_rel_path: st
     output_dir.mkdir(parents=True, exist_ok=True)
 
     audio_path = artifact_path(source_id, source_version, audio_rel_path)
-    segments, backend = transcribe(str(audio_path), str(output_dir), doc_id=source_id)
-
-    transcript_path = output_dir / "source.srt"
-    if transcript_path.exists():
-        content = transcript_path.read_text(encoding="utf-8")
-        write_artifact(source_id, source_version, TRANSCRIPT_REL_PATH, content)
+    out_path, backend = run_whisper_backend(str(audio_path), str(output_dir), output_format="srt")
+    content = Path(out_path).read_text(encoding="utf-8")
+    segments = parse_srt_or_vtt(content, doc_id=source_id)
+    write_artifact(source_id, source_version, TRANSCRIPT_REL_PATH, content)
 
     lines = "\n".join(json.dumps(seg, ensure_ascii=True) for seg in segments)
     write_artifact(source_id, source_version, SEGMENTS_REL_PATH, lines)
@@ -87,6 +85,7 @@ def handle_job(job: Dict[str, object]) -> None:
             output_json={"artifacts": artifacts},
         )
         from app.queue.jobs import enqueue_job
+        enqueue_job("transcript_markdown", "oss20b", source_id, source_version)
         enqueue_job("chunk_transcript", "oss20b", source_id, source_version)
         enqueue_job("diarize_audio", "transcribe", source_id, source_version)
     except Exception as exc:

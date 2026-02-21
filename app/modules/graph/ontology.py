@@ -8,17 +8,14 @@ from typing import List, Dict
 from app.core.manifest import get_manifest, upsert_manifest
 from app.core.storage import write_artifact
 from app.core.timeutil import utc_now
+from app.modules.graph.ontology_rules import canonical_default_rules
 
 
 ONTOLOGY_REL_PATH = "graph/ontology.json"
 
 
 def seed_ontology() -> List[Dict[str, object]]:
-    return [
-        {"predicate": "mentions", "domain_type": "Document", "range_type": "Entity", "description": "Doc mentions entity"},
-        {"predicate": "has_topic", "domain_type": "Document", "range_type": "Topic", "description": "Doc has topic"},
-        {"predicate": "related_to", "domain_type": "Entity", "range_type": "Entity", "description": "Entity related to"},
-    ]
+    return canonical_default_rules()
 
 
 def handle_job(job: Dict[str, object]) -> None:
