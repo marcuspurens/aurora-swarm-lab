@@ -1,0 +1,6 @@
+Return ONLY valid JSON with keys: intent, filters, retrieve_top_k, need_strong_model, reason.
+filters may include: topics (array), entities (array), source_type, memory_type, memory_kind, user_id, project_id, session_id, date_from, date_to.
+retrieve_top_k should be an integer. need_strong_model is boolean.
+
+Question:
+$question

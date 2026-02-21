@@ -1,0 +1,8 @@
+Return ONLY valid JSON with keys: claims, timeline, open_questions.
+Each should be an array of strings. Use the evidence.
+
+Question:
+$question
+
+Evidence:
+$evidence_json

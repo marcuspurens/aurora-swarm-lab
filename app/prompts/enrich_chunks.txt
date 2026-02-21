@@ -1,0 +1,5 @@
+Return ONLY valid JSON with keys: topics, entities.
+topics and entities are arrays of short strings.
+
+Text:
+$text

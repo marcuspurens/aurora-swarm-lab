@@ -1,0 +1,11 @@
+Return ONLY valid JSON with key: relations.
+relations is a list of {rel_id, subj_entity_id, predicate, obj_entity_id, doc_id, segment_id, confidence}.
+Use provided entity_id values.
+Use only predicates from this allowed ontology list:
+$allowed_predicates
+
+Entities:
+$entities_json
+
+Chunks:
+$chunks_json

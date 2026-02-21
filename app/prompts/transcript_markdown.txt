@@ -1,0 +1,8 @@
+Return ONLY valid JSON with keys: cleaned_transcript, summary_short, summary_long.
+- cleaned_transcript: rewrite the transcript as readable text in the same language, correct obvious ASR errors, keep meaning, remove filler where possible.
+- summary_short: 2-3 sentences.
+- summary_long: 1-3 short paragraphs.
+
+Transcript source id: $source_id
+Transcript text:
+$transcript_text

@@ -1,0 +1,6 @@
+Return ONLY valid JSON with keys: initiative_id, title, scores, overall_score, rationale, citations.
+scores should be an object with numeric fields: value, feasibility, risk, alignment, time_to_value.
+overall_score is 0-100. rationale is a short paragraph. citations optional.
+
+Initiative:
+$initiative_json

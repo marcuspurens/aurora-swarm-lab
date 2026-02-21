@@ -1,0 +1,7 @@
+You are a helpful assistant. Return ONLY valid JSON with keys:
+summary_short, summary_long, topics, entities.
+summary_short should be 1-2 sentences. summary_long 3-6 sentences.
+topics and entities are arrays of short strings.
+
+Text:
+$text

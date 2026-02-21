@@ -1,0 +1,7 @@
+Return ONLY valid JSON with keys: entities, claims.
+entities is a list of {entity_id, name, type, aliases, metadata}.
+claims is a list of {claim_id, claim_text, doc_id, segment_id, confidence}.
+Use doc_id and segment_id from the input when available.
+
+Input:
+$input_json

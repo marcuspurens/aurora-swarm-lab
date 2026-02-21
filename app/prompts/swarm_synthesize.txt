@@ -1,0 +1,12 @@
+Return ONLY valid JSON with keys: answer_text, citations.
+citations is an array of objects with doc_id, segment_id, start_ms, end_ms.
+Use evidence and analysis if provided.
+
+Question:
+$question
+
+Evidence:
+$evidence_json
+
+Analysis:
+$analysis_json
