@@ -16,6 +16,8 @@ Transkriberar ljud via Whisper och sparar segment med tidskoder som kan citeras.
 
 Chunksar och berikar innehall med metadata (sammanfattning, amnen, entiteter).
 
+Promptar ligger som textmallar i `app/prompts/` (inte hardkodade i Python-moduler).
+
 Publicerar allt till en dedikerad Snowflake-databas som fungerar som Knowledge Base.
 
 Kor en agent-swarm som routar fragor, hamtar evidens och genererar svar med kallhanvisningar.
@@ -50,6 +52,19 @@ python -m app.cli.main enqueue-url <url>
 python -m app.cli.main worker --lane io
 ```
 Artifacts hamnar under `data/artifacts/<safe_source_id>/<source_version>/`.
+URL-ingest kör snabb HTTP-scrape först och kan fallbacka till headless rendering för JS-tunga sidor när texten blir tunn.
+Styrning via `.env`:
+`AURORA_URL_HEADLESS_FALLBACK_ENABLED`,
+`AURORA_URL_HEADLESS_FALLBACK_MIN_TEXT_CHARS`,
+`AURORA_URL_HEADLESS_TIMEOUT_MS`,
+`AURORA_URL_HEADLESS_WAIT_UNTIL`,
+`AURORA_URL_HEADLESS_BROWSER`.
+För fallback krävs `playwright` + browser binaries installerade lokalt.
+
+Skalning för mycket data:
+- Behåll allt source-lokalt i `data/artifacts/<source>/<version>/...` (nuvarande default) för dedupe/spårbarhet.
+- Exportera endast sammanfattningar (`transcript/summary.md`) till Obsidian/sekundärt lager om du vill minska brus.
+- Kör retention/arkivering av äldre `source_version`-mappar när lagring växer.
 
 ## Phase B (P1-6): Ingest PDF/DOCX (MVP)
 1) Enqueue dokument
@@ -60,6 +75,19 @@ python -m app.cli.main enqueue-doc <path>
 ```
 python -m app.cli.main worker --lane io
 ```
+PDF-ingest laster text-layer med `pypdfium2` och kan fallbacka till OCR for scannade PDF:er
+nar texten ar tunn. OCR styrs via `.env`:
+`AURORA_DOC_OCR_ENABLED`,
+`AURORA_DOC_OCR_BACKEND` (`auto|paddleocr|tesseract`, `auto` provar PaddleOCR forst),
+`AURORA_DOC_OCR_MIN_TEXT_CHARS`,
+`AURORA_DOC_OCR_LANG`,
+`AURORA_DOC_OCR_PADDLE_LANG`,
+`AURORA_DOC_OCR_RENDER_SCALE`,
+`AURORA_DOC_OCR_MAX_PAGES`.
+For OCR behovs minst ett backend:
+- PaddleOCR: Python-paketet `paddleocr` (och dess beroenden)
+- Tesseract: `tesseract` (binar) + Python-paketet `pytesseract`
+Tips for PaddleOCR i mer stangda miljoer: satt `PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True`.
 
 ## Phase B (P1-7/8): YouTube/audio + Whisper transcription (MVP)
 1) Enqueue YouTube
@@ -71,10 +99,15 @@ python -m app.cli.main enqueue-youtube <url>
 python -m app.cli.main worker --lane io
 python -m app.cli.main worker --lane transcribe
 ```
+Alternativt: `./scripts/aurora_workers.sh` valjer automatiskt en Python-miljo som har transcribe-backend tillganglig (`whisper` CLI eller `faster_whisper`).
 Transcribe-backend väljs via `.env`:
 - `TRANSCRIBE_BACKEND=auto` (default, försöker `whisper` CLI först och fallbackar till `faster_whisper`)
 - `TRANSCRIBE_BACKEND=whisper_cli` (kräver `whisper` i PATH)
 - `TRANSCRIBE_BACKEND=faster_whisper` (kräver Python-paketet `faster-whisper`)
+- Efter transcribe körs även `transcript_markdown` som skriver:
+  - `transcript/summary.json` (renskriven text + sammanfattning)
+  - `transcript/summary.md` (läsbar markdown)
+- Promptstorlek styrs via `AURORA_TRANSCRIPT_MARKDOWN_MAX_CHARS` (default `24000`).
 
 ## Phase B (P1-9/10/11): Chunking + Enrichment + Publish (MVP)
 1) Starta workers
@@ -110,6 +143,10 @@ Valbart outbound PII-filter för LLM-prompts styrs via:
 `EGRESS_PII_TOKEN_SALT` (för stabil pseudonymiseringstoken).
 `run_log` för route/analyze/synthesize innehåller audit-fält som `egress_policy_provider`, `egress_policy_mode`, `egress_policy_reason_codes`, `egress_policy_fail_closed`, `egress_policy_input_chars`, `egress_policy_output_chars`.
 Local file-ingest kör allowlist: sätt `AURORA_INGEST_PATH_ALLOWLIST` (kommaseparerade paths) och styr enforcement med `AURORA_INGEST_PATH_ALLOWLIST_ENFORCED`.
+`ingest_auto` stödjer nu även mappar (rekursivt) och begränsas av `AURORA_INGEST_AUTO_MAX_FILES_PER_DIR` (default `500`).
+`ingest_auto` stödjer även strukturerad källmetadata:
+`tags`, `context`, `speaker`, `organization`, `event_date` (YYYY-MM-DD) och `source_metadata` (objekt).
+Metadata sparas i manifest under `metadata.intake.source_metadata` och speglas i `metadata.ebucore_plus`.
 
 ## Phase D (P3-14): Memory (MVP)
 1) Skriv minne
@@ -200,6 +237,9 @@ python -m app.cli.main worker --lane oss20b
 ```
 Graph-extraktion körs efter enrichment och skriver `graph/entities.jsonl`, `graph/relations.jsonl`, `graph/claims.jsonl`, `graph/ontology.json`.
 Publish till Snowflake körs efter relations och skriver `graph/publish_receipt.json`.
+Graph publish kör nu ontologi-validering (predicate + domain/range) fail-closed:
+ogiltiga relationer blockeras från publish och skrivs till `graph/validation_report.json`.
+Relations-extraktion kan begränsa promptstorlek med `AURORA_GRAPH_RELATIONS_MAX_CHUNKS` (default `20`) för att minska timeout-risk.
 
 ## Phase F (P5): Graph retrieval (MVP)
 ```
@@ -217,7 +257,8 @@ Starta MCP-server över stdio:
 ```
 python -m app.cli.main mcp-server
 ```
-Tools: ingest_url, ingest_doc, ingest_youtube, ask, memory_write, memory_recall, memory_stats, memory_maintain, status.
+Tools: ingest_url, ingest_doc, ingest_youtube, ask, memory_write, memory_recall, memory_stats, memory_maintain, status, dashboard_stats, dashboard_timeseries, dashboard_alerts, dashboard_models, ingest_auto, intake_open, obsidian_watch_status, obsidian_list_notes, obsidian_enqueue_note, dashboard_open.
+`ingest_auto` accepterar: `text`, `items`, `dedupe`, `tags`, `context`, `speaker`, `organization`, `event_date`, `source_metadata`.
 `ask`, `memory_write`, `memory_recall`, `memory_stats` och `memory_maintain` accepterar även `user_id`, `project_id`, `session_id` för scope-isolering.
 Om scope saknas i MCP-arguments används samma `.env` defaults (`AURORA_DEFAULT_*`).
 När `MCP_REQUIRE_EXPLICIT_INTENT=1` (default) kräver side-effect actions explicit `intent`:
@@ -238,7 +279,7 @@ codex mcp list
 codex mcp get aurora --json
 ```
 3) Starta om Codex Desktop.
-4) Använd Aurora-tools i Codex (`ask`, `memory_write`, `memory_recall`, `memory_stats`), eller öppna MCP-resursen `ui://intake`.
+4) Använd Aurora-tools i Codex (`ask`, `memory_write`, `memory_recall`, `memory_stats`), eller öppna MCP-resurserna `ui://intake` / `ui://dashboard`.
 
 Helper-script för Codex MCP-start finns i:
 `scripts/aurora_mcp_server.sh`
@@ -262,6 +303,21 @@ python -m app.cli.main mcp-server
 4) Klicka "Ingest (auto)".
 UI:t har även snabbknappar med förklaring:
 `Importera`, `Fraga`, `Kom ihag`, `TODO`.
+För dashboard som egen UI-resurs, öppna:
+`ui://dashboard` (eller tool `dashboard_open`).
+Dashboarden visar:
+`Overview` (mål/progress), `Pipeline` (24h timeseries), `Alerts` (driftvarningar), `Models` (modell/tokens-estimat).
+
+### Intake UI i vanlig webbläsare (med fungerande knappar)
+Om din klient bara visar `ui://intake` som text/HTML, kör lokal webserver:
+```
+scripts/intake_ui_server.sh
+```
+Öppna sedan:
+```
+http://127.0.0.1:8765
+```
+Knapparna proxar då lokalt till Aurora tools via `/api/tools/call`.
 
 ## Phase G (P6): Obsidian auto-intake (MVP)
 1) Sätt `OBSIDIAN_VAULT_PATH` i `.env`.
@@ -275,14 +331,36 @@ python -m app.cli.main obsidian-watch
    - Output skrivs till `_outputs/<note>.output.md`.
 
 ### Auto-start (macOS)
-- LaunchAgent: `~/Library/LaunchAgents/com.aurora.obsidian-watch.plist`
-- Script: `scripts/obsidian_watch.sh`
-- Logs: `~/Library/Logs/aurora-obsidian-watch.log`
+- One-shot install: `scripts/install_autostart_mac.sh`
+- One-shot uninstall: `scripts/uninstall_autostart_mac.sh`
+- Installer skapar LaunchAgents:
+  - `com.aurora.workers` (workers)
+  - `com.aurora.intake-ui` (`http://127.0.0.1:8765`)
+  - `com.aurora.obsidian-watch` (om `OBSIDIAN_VAULT_PATH` finns)
+  - `com.aurora.dropbox-watch` (om `AURORA_DROPBOX_PATHS` finns)
+- Logs: `~/Library/Logs/aurora-*.log`
+- Restarta alla Aurora-agenter:
+```
+UID_NOW=$(id -u)
+launchctl kickstart -k gui/${UID_NOW}/com.aurora.workers
+launchctl kickstart -k gui/${UID_NOW}/com.aurora.intake-ui
+launchctl kickstart -k gui/${UID_NOW}/com.aurora.obsidian-watch
+launchctl kickstart -k gui/${UID_NOW}/com.aurora.dropbox-watch
+```
 
-### Workers auto-start (macOS)
-- LaunchAgent: `~/Library/LaunchAgents/com.aurora.workers.plist`
-- Script: `scripts/aurora_workers.sh`
-- Logs: `~/Library/Logs/aurora-workers.log`
+## Hands-free intake (drag/drop/copy-paste/folder watch)
+Sätt i `.env`:
+```
+OBSIDIAN_VAULT_PATH=/absolute/path/to/your/vault
+AURORA_DROPBOX_PATHS=/absolute/path/to/AuroraDrop,/absolute/path/to/MoreDropFolders
+AURORA_DROPBOX_RECURSIVE=1
+AURORA_DROPBOX_SCAN_ON_START=1
+AURORA_DROPBOX_DEBOUNCE_SECONDS=1.2
+```
+Flöde:
+- Släpp filer i dropbox-mapp(ar) eller i Obsidian note.
+- Watchers enqueuar ingest automatiskt.
+- Workers indexerar, chunkar, vektoriserar och fortsätter pipeline automatiskt.
 
 ## Mobile-first usage (iPhone/Android)
 Snabbaste stabila vägen är mobil -> SSH -> Aurora CLI.

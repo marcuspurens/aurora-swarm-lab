@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-python -m app.cli.main worker --lane io &
-python -m app.cli.main worker --lane transcribe &
-python -m app.cli.main worker --lane oss20b &
-python -m app.cli.main worker --lane nemotron &
+PYTHON_BIN="${AURORA_PYTHON_BIN:-python}"
+
+"${PYTHON_BIN}" -m app.cli.main worker --lane io &
+"${PYTHON_BIN}" -m app.cli.main worker --lane transcribe &
+"${PYTHON_BIN}" -m app.cli.main worker --lane oss20b &
+"${PYTHON_BIN}" -m app.cli.main worker --lane nemotron &
 wait
