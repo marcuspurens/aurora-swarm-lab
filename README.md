@@ -266,6 +266,47 @@ När `MCP_REQUIRE_EXPLICIT_INTENT=1` (default) kräver side-effect actions expli
 Valbar tool allowlist per klient/use-case:
 `MCP_TOOL_ALLOWLIST=*|tool1,tool2` och `MCP_TOOL_ALLOWLIST_BY_CLIENT="codex=ask,memory_recall;codex/intake=ingest_auto,ask,memory_write;@mobile=ask,memory_write"`.
 
+## Koppla till Claude Desktop & Obsidian
+
+### Claude Desktop
+
+Aurora registreras som MCP-server i Claude Desktop via stdio-transport.
+
+**Konfiguration** — lägg till (eller uppdatera) i `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "aurora": {
+      "command": "python",
+      "args": ["-m", "app.cli.main", "mcp-server"],
+      "cwd": "/Users/mpmac/Documents/VS Code/aurora-swarm-lab"
+    }
+  }
+}
+```
+
+Starta om Claude Desktop efter ändring. Aurora exponerar 24 verktyg (t.ex. `ask`, `ingest_url`, `ingest_auto`, `memory_write`, `memory_recall`, `dashboard_stats`, `obsidian_list_notes`).
+
+**Verifiera manuellt:**
+```bash
+cd "/Users/mpmac/Documents/VS Code/aurora-swarm-lab"
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | python -m app.cli.main mcp-server
+```
+
+### Obsidian
+
+Aurora kan nås från Obsidian på två sätt:
+
+1. **Via Claude Desktop (rekommenderat):** Obsidians mcp-tools-plugin (v0.2.27) exponerar vaultet till Claude Desktop som en MCP-server, men stöder inte konfiguration av *externa* MCP-servrar. Aurora och mcp-tools körs därför som separata MCP-servrar i Claude Desktop — Claude kan använda båda samtidigt.
+
+2. **Via Obsidian-watcher:** Aurora har inbyggt stöd för Obsidian-vault-bevakning. Sätt `OBSIDIAN_VAULT_PATH` i `.env` och kör:
+   ```bash
+   python -m app.cli.main obsidian-watch
+   ```
+   Notes med `aurora_command`-frontmatter processas automatiskt. Se avsnittet "Phase D (P3-15): Obsidian workflow" ovan.
+
 ## Codex Desktop as UI
 Codex Desktop kan vara ditt primära UI mot Aurora via MCP.
 
