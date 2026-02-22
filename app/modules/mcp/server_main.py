@@ -40,7 +40,6 @@ from app.modules.memory.context_handoff import (
 from app.modules.voiceprint.gallery import list_voiceprints, upsert_person
 from app.modules.intake.ingest_auto import extract_items, enqueue_items
 from app.modules.intake.intake_obsidian import enqueue as enqueue_obsidian_note
-from app.modules.intake.intake_image import enqueue as enqueue_image
 from app.modules.security.ingest_allowlist import ensure_ingest_path_allowed
 
 

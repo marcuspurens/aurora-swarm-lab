@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List, Tuple
 
 from app.core.textnorm import normalize_whitespace
 

@@ -15,7 +15,6 @@ from app.queue.db import init_db
 from app.queue.jobs import enqueue_job
 from app.queue.worker import run_worker
 from app.clients.snowflake_client import SnowflakeClient
-from app.modules.publish.publish_snowflake import publish_documents, publish_segments
 from app.modules.retrieve.retrieve_snowflake import retrieve
 from app.modules.swarm.route import route_question
 from app.modules.swarm.synthesize import synthesize
@@ -305,8 +304,6 @@ def _resolve_scope(
 
 def main() -> int:
     configure_logging()
-    settings = load_settings()
-
     parser = argparse.ArgumentParser(prog="aurora")
     sub = parser.add_subparsers(dest="cmd")
 

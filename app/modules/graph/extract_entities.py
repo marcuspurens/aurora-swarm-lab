@@ -9,7 +9,7 @@ from app.clients.ollama_client import generate_json
 from app.core.config import load_settings
 from app.core.ids import sha256_text
 from app.core.manifest import get_manifest, upsert_manifest
-from app.core.models import GraphEntitiesOutput, GraphEntity, GraphClaim
+from app.core.models import GraphEntitiesOutput
 from app.core.prompts import render_prompt
 from app.core.storage import artifact_path, read_artifact, write_artifact
 from app.core.timeutil import utc_now

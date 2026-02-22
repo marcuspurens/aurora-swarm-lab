@@ -180,7 +180,7 @@ def parse_srt_or_vtt(text: str, doc_id: str) -> List[Dict[str, object]]:
     segments = []
     seg_id = 0
     for block in blocks:
-        lines = [l.strip() for l in block.splitlines() if l.strip()]
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
         if not lines:
             continue
         if re.match(r"^\d+$", lines[0]):
