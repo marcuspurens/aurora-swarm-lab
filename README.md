@@ -435,3 +435,120 @@ python -m app.cli.main ask "<question>"
 
 ## Status
 Phase A scaffolding klar: queue, manifest, artifacts, Snowflake bootstrap, CLI.
+
+## Obsidian Integration
+
+Aurora can be used as a "second brain" accessed through Obsidian in two ways:
+
+### 1. Obsidian Vault Watcher (Frontmatter Commands)
+
+The vault watcher monitors your Obsidian vault for notes with `aurora_command`
+frontmatter and automatically enqueues jobs.
+
+```bash
+# Start the vault watcher
+python -m app.cli.main watch-vault
+```
+
+Supported frontmatter commands:
+
+```yaml
+---
+aurora_command: ingest_url
+url: https://example.com/article
+---
+```
+
+```yaml
+---
+aurora_command: ingest_doc
+path: ./documents/paper.pdf
+---
+```
+
+```yaml
+---
+aurora_command: ingest_image
+path: ./screenshots/whiteboard.png
+---
+```
+
+```yaml
+---
+aurora_command: ingest_youtube
+url: https://youtube.com/watch?v=...
+---
+```
+
+Notes in an `Aurora Inbox` folder or with `aurora_auto: true` are automatically
+ingested.
+
+### 2. MCP Server (for Claude Desktop / MCP clients)
+
+Aurora exposes a full MCP server over stdio that can be used by any MCP-compatible
+client, including Claude Desktop.
+
+```bash
+# Start MCP server
+python -m app.cli.main mcp-server
+# Or use the helper script:
+./scripts/aurora_mcp_server.sh
+```
+
+#### Claude Desktop Configuration
+
+Add aurora to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "aurora-swarm-lab": {
+      "command": "/path/to/aurora-swarm-lab/scripts/aurora_mcp_server.sh",
+      "args": []
+    }
+  }
+}
+```
+
+#### Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `ask` | Ask a question via the swarm pipeline |
+| `ingest_url` | Enqueue a URL for ingest |
+| `ingest_doc` | Enqueue a document (PDF/DOCX/TXT) for ingest |
+| `ingest_image` | Enqueue an image for OCR text extraction |
+| `ingest_youtube` | Enqueue a YouTube video for ingest |
+| `ingest_auto` | Auto-detect and enqueue links/files |
+| `memory_write` | Write a memory item |
+| `memory_recall` | Recall memory items by query |
+| `memory_stats` | Memory observability stats |
+| `memory_maintain` | Run memory lifecycle maintenance |
+| `obsidian_list_notes` | List notes in the Obsidian vault |
+| `obsidian_enqueue_note` | Parse and enqueue an Obsidian note |
+
+### 3. Obsidian Plugins
+
+**mcp-tools** (v0.2.27): Installed and configured. This plugin runs a local REST
+API server in Obsidian and installs an MCP server binary that allows Claude Desktop
+to access your vault's content via MCP.
+
+**Copilot** (v3.1.5): AI chat in Obsidian with Claude Sonnet 4. The Copilot
+plugin uses its own autonomous agent tools (localSearch, readNote, webSearch, etc.)
+for vault interaction. To query Aurora's knowledge base from Copilot, use the
+vault watcher: create a note with `aurora_command: ask` and the watcher will
+process it and write the response back.
+
+### YouTube Cookie Support
+
+For age-gated or login-protected YouTube videos, configure browser cookies:
+
+```bash
+# In .env
+AURORA_YOUTUBE_COOKIES_FROM_BROWSER=chrome
+
+# Or via CLI
+python -m app.cli.main enqueue-youtube --cookies-from-browser safari "https://youtube.com/watch?v=..."
+```
+
+Supported values: `chrome`, `safari`, `firefox`, or a path to a cookies.txt file.

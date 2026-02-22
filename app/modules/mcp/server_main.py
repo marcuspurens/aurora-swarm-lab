@@ -40,6 +40,7 @@ from app.modules.memory.context_handoff import (
 from app.modules.voiceprint.gallery import list_voiceprints, upsert_person
 from app.modules.intake.ingest_auto import extract_items, enqueue_items
 from app.modules.intake.intake_obsidian import enqueue as enqueue_obsidian_note
+from app.modules.intake.intake_image import enqueue as enqueue_image
 from app.modules.security.ingest_allowlist import ensure_ingest_path_allowed
 
 
@@ -52,6 +53,11 @@ TOOLS = [
     {
         "name": "ingest_doc",
         "description": "Enqueue document for ingest",
+        "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
+    },
+    {
+        "name": "ingest_image",
+        "description": "Enqueue image file for OCR text extraction",
         "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
     },
     {
@@ -957,6 +963,15 @@ def _tool_ingest_doc(args: Dict[str, Any]) -> Dict[str, Any]:
     return {"job_id": job_id, "source_id": source_id, "source_version": source_version}
 
 
+
+def _tool_ingest_image(args: Dict[str, Any]) -> Dict[str, Any]:
+    path = str(args.get("path", ""))
+    resolved = str(ensure_ingest_path_allowed(Path(path), source="mcp.ingest_image"))
+    source_id = make_source_id("image", resolved)
+    source_version = sha256_file(Path(resolved))
+    job_id = enqueue_job("ingest_image", "io", source_id, source_version)
+    return {"job_id": job_id, "source_id": source_id, "source_version": source_version}
+
 def _tool_ingest_youtube(args: Dict[str, Any]) -> Dict[str, Any]:
     url = str(args["url"])
     info = get_video_info(url)
@@ -1358,6 +1373,8 @@ def handle_request(req: Dict[str, Any]) -> Dict[str, Any]:
             return _tool_ingest_url(args)
         if name == "ingest_doc":
             return _tool_ingest_doc(args)
+        if name == "ingest_image":
+            return _tool_ingest_image(args)
         if name == "ingest_youtube":
             return _tool_ingest_youtube(args)
         if name == "ask":

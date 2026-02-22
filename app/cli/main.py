@@ -39,6 +39,7 @@ from app.modules.initiatives.pipeline import run_pipeline_from_json
 from app.modules.intake.intake_url import compute_source_version as compute_url_version
 from app.modules.intake.intake_url import handle_job as handle_url_job
 from app.modules.intake.intake_doc import handle_job as handle_doc_job
+from app.modules.intake.intake_image import handle_job as handle_image_job
 from app.modules.intake.intake_youtube import compute_source_version as compute_youtube_version
 from app.clients.youtube_client import get_video_info
 from app.modules.intake.intake_youtube import handle_job as handle_youtube_job
@@ -96,8 +97,17 @@ def cmd_enqueue_doc(args) -> None:
     print(f"Enqueued doc: {path}")
 
 
+
+def cmd_enqueue_image(args) -> None:
+    path = ensure_ingest_path_allowed(Path(args.path), source="cli.enqueue_image")
+    source_id = make_source_id("image", str(path))
+    source_version = sha256_file(path)
+    enqueue_job("ingest_image", "io", source_id, source_version)
+    print(f"Enqueued image: {path}")
+
 def cmd_enqueue_youtube(args) -> None:
-    info = get_video_info(args.url)
+    cookies = getattr(args, "cookies_from_browser", None)
+    info = get_video_info(args.url, cookies_from_browser=cookies)
     video_id = str(info.get("id") or "unknown")
     source_id = make_source_id("youtube", video_id)
     source_version = compute_youtube_version(args.url)
@@ -112,6 +122,7 @@ def cmd_worker(args) -> None:
     handlers = {
         "ingest_url": handle_url_job,
         "ingest_doc": handle_doc_job,
+        "ingest_image": handle_image_job,
         "ingest_youtube": handle_youtube_job,
         "transcribe_whisper": handle_transcribe_job,
         "transcript_markdown": handle_transcript_markdown,
@@ -308,8 +319,13 @@ def main() -> int:
     p_doc = sub.add_parser("enqueue-doc")
     p_doc.add_argument("path")
 
+
+    p_img = sub.add_parser("enqueue-image", help="Enqueue image for OCR ingest")
+    p_img.add_argument("path")
+
     p_yt = sub.add_parser("enqueue-youtube")
     p_yt.add_argument("url")
+    p_yt.add_argument("--cookies-from-browser", default=None, help="Browser name (chrome/safari/firefox) or path to cookies file for age-gated videos")
 
     p_worker = sub.add_parser("worker")
     p_worker.add_argument("--lane", required=True)
@@ -378,6 +394,8 @@ def main() -> int:
         cmd_enqueue_url(args)
     elif args.cmd == "enqueue-doc":
         cmd_enqueue_doc(args)
+    elif args.cmd == "enqueue-image":
+        cmd_enqueue_image(args)
     elif args.cmd == "enqueue-youtube":
         cmd_enqueue_youtube(args)
     elif args.cmd == "worker":
