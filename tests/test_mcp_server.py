@@ -4,14 +4,9 @@ from app.core.models import RouteOutput, SynthesizeOutput
 from app.core.manifest import get_manifest
 from app.modules.mcp import server_main
 from app.modules.memory.memory_recall import recall
-from app.queue.db import init_db
 
 
-def test_mcp_tools_list(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    init_db()
-
+def test_mcp_tools_list(db):
     resp = server_main.handle_request({"method": "tools/list", "params": {}})
     assert "tools" in resp
     ask_tool = next((tool for tool in resp["tools"] if tool.get("name") == "ask"), {})
@@ -52,11 +47,7 @@ def test_mcp_initialize_response():
     assert resp["serverInfo"]["name"] == "aurora-swarm-lab"
 
 
-def test_mcp_memory_write_and_recall(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    init_db()
-
+def test_mcp_memory_write_and_recall(db):
     write_resp = server_main.handle_request(
         {
             "method": "tools/call",
@@ -74,11 +65,7 @@ def test_mcp_memory_write_and_recall(tmp_path, monkeypatch):
     assert len(recall_resp) == 1
 
 
-def test_mcp_memory_stats(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    init_db()
-
+def test_mcp_memory_stats(db):
     server_main.handle_request(
         {
             "method": "tools/call",
@@ -109,11 +96,7 @@ def test_mcp_memory_stats(tmp_path, monkeypatch):
     assert "hit_rate" in stats_resp["retrieval_feedback"]
 
 
-def test_mcp_memory_maintain(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    init_db()
-
+def test_mcp_memory_maintain(db):
     server_main.handle_request(
         {
             "method": "tools/call",
@@ -145,11 +128,7 @@ def test_mcp_memory_maintain(tmp_path, monkeypatch):
     assert int(maintain_resp["deleted_total"]) == 1
 
 
-def test_mcp_memory_maintain_enqueue(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    init_db()
-
+def test_mcp_memory_maintain_enqueue(db):
     resp = server_main.handle_request(
         {
             "method": "tools/call",
@@ -160,13 +139,8 @@ def test_mcp_memory_maintain_enqueue(tmp_path, monkeypatch):
     assert resp["job_id"]
 
 
-def test_mcp_ingest_doc(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    monkeypatch.setenv("AURORA_INGEST_PATH_ALLOWLIST", str(tmp_path))
-    init_db()
-
-    doc = tmp_path / "doc.txt"
+def test_mcp_ingest_doc(db, ingest_allowlist):
+    doc = ingest_allowlist / "doc.txt"
     doc.write_text("hi", encoding="utf-8")
 
     resp = server_main.handle_request(
@@ -178,12 +152,7 @@ def test_mcp_ingest_doc(tmp_path, monkeypatch):
     assert resp["job_id"]
 
 
-def test_mcp_voice_gallery_tools(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    monkeypatch.setenv("ARTIFACT_ROOT", str(tmp_path / "artifacts"))
-    init_db()
-
+def test_mcp_voice_gallery_tools(db, artifact_root):
     resp = server_main.handle_request({"method": "tools/call", "params": {"name": "voice_gallery_list", "arguments": {}}})
     assert isinstance(resp, list)
 
@@ -196,13 +165,8 @@ def test_mcp_voice_gallery_tools(tmp_path, monkeypatch):
     assert update["voiceprint_id"] == "vp1"
 
 
-def test_mcp_ingest_auto_doc(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    monkeypatch.setenv("AURORA_INGEST_PATH_ALLOWLIST", str(tmp_path))
-    init_db()
-
-    doc = tmp_path / "doc.txt"
+def test_mcp_ingest_auto_doc(db, ingest_allowlist):
+    doc = ingest_allowlist / "doc.txt"
     doc.write_text("hello", encoding="utf-8")
 
     resp = server_main.handle_request(
@@ -223,13 +187,8 @@ def test_mcp_ingest_auto_doc(tmp_path, monkeypatch):
     assert intake.get("context") == "Known project note"
 
 
-def test_mcp_ingest_auto_doc_with_structured_metadata(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    monkeypatch.setenv("AURORA_INGEST_PATH_ALLOWLIST", str(tmp_path))
-    init_db()
-
-    doc = tmp_path / "doc.txt"
+def test_mcp_ingest_auto_doc_with_structured_metadata(db, ingest_allowlist):
+    doc = ingest_allowlist / "doc.txt"
     doc.write_text("hello", encoding="utf-8")
 
     resp = server_main.handle_request(
@@ -262,8 +221,7 @@ def test_mcp_ingest_auto_doc_with_structured_metadata(tmp_path, monkeypatch):
     assert (ebucore_plus.get("organization") or {}).get("name") == "ORF"
 
 
-def test_mcp_obsidian_tools_list_and_enqueue(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
+def test_mcp_obsidian_tools_list_and_enqueue(db, tmp_path, monkeypatch):
     vault = tmp_path / "vault"
     vault.mkdir(parents=True, exist_ok=True)
     note = vault / "Aurora Inbox" / "daily.md"
@@ -277,9 +235,7 @@ Some pasted note content.
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
     monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(vault))
-    init_db()
 
     status_resp = server_main.handle_request(
         {"method": "tools/call", "params": {"name": "obsidian_watch_status", "arguments": {}}}
@@ -306,16 +262,13 @@ Some pasted note content.
     assert enqueue_resp["result"]["job_type"] == "ingest_doc"
 
 
-def test_mcp_obsidian_enqueue_rejects_path_outside_vault(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
+def test_mcp_obsidian_enqueue_rejects_path_outside_vault(db, tmp_path, monkeypatch):
     vault = tmp_path / "vault"
     vault.mkdir(parents=True, exist_ok=True)
     outside_note = tmp_path / "outside.md"
     outside_note.write_text("# outside", encoding="utf-8")
 
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
     monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(vault))
-    init_db()
 
     with pytest.raises(PermissionError, match="outside configured Obsidian vault"):
         server_main.handle_request(
@@ -326,12 +279,7 @@ def test_mcp_obsidian_enqueue_rejects_path_outside_vault(tmp_path, monkeypatch):
         )
 
 
-def test_mcp_context_handoff(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    monkeypatch.setenv("ARTIFACT_ROOT", str(tmp_path / "artifacts"))
-    init_db()
-
+def test_mcp_context_handoff(db, artifact_root):
     resp = server_main.handle_request(
         {
             "method": "tools/call",
@@ -342,11 +290,7 @@ def test_mcp_context_handoff(tmp_path, monkeypatch):
     assert "Aurora Auto Handoff" in resp["text"]
 
 
-def test_mcp_intake_ui_has_action_buttons_and_explanations(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    init_db()
-
+def test_mcp_intake_ui_has_action_buttons_and_explanations(db):
     resp = server_main.handle_request(
         {
             "method": "resources/get",
@@ -363,11 +307,7 @@ def test_mcp_intake_ui_has_action_buttons_and_explanations(tmp_path, monkeypatch
     assert "markSelected" in html
 
 
-def test_mcp_dashboard_ui_resource(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    init_db()
-
+def test_mcp_dashboard_ui_resource(db):
     resp = server_main.handle_request(
         {
             "method": "resources/get",
@@ -386,11 +326,7 @@ def test_mcp_dashboard_open_tool():
     assert resp["resource_uri"] == "ui://dashboard"
 
 
-def test_mcp_resources_read_alias_returns_mcp_content_shape(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    init_db()
-
+def test_mcp_resources_read_alias_returns_mcp_content_shape(db):
     resp = server_main.handle_request(
         {
             "method": "resources/read",
@@ -444,11 +380,7 @@ def test_mcp_ask_rejects_unknown_argument():
         )
 
 
-def test_mcp_ask_normalizes_nfkc_question(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    init_db()
-
+def test_mcp_ask_normalizes_nfkc_question(db, monkeypatch):
     captured = {}
 
     monkeypatch.setattr(
@@ -482,11 +414,7 @@ def test_mcp_ask_normalizes_nfkc_question(tmp_path, monkeypatch):
     assert captured["question"] == "ABC 123 x"
 
 
-def test_mcp_ask_explicit_remember_short_circuits_swarm(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    init_db()
-
+def test_mcp_ask_explicit_remember_short_circuits_swarm(db, monkeypatch):
     monkeypatch.setattr(server_main, "route_question", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("should not route")))
 
     resp = server_main.handle_request(
@@ -505,11 +433,7 @@ def test_mcp_ask_explicit_remember_short_circuits_swarm(tmp_path, monkeypatch):
     assert recalled[0].get("memory_kind") == "semantic"
 
 
-def test_mcp_ask_records_retrieval_feedback(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    init_db()
-
+def test_mcp_ask_records_retrieval_feedback(db, monkeypatch):
     captured = {}
     monkeypatch.setattr(
         server_main,
@@ -544,11 +468,7 @@ def test_mcp_ask_records_retrieval_feedback(tmp_path, monkeypatch):
     assert captured["feedback"]["question"] == "What's new?"
 
 
-def test_mcp_ask_passes_scope_to_retrieve_and_feedback(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    init_db()
-
+def test_mcp_ask_passes_scope_to_retrieve_and_feedback(db, monkeypatch):
     captured = {}
     monkeypatch.setattr(
         server_main,
@@ -587,13 +507,10 @@ def test_mcp_ask_passes_scope_to_retrieve_and_feedback(tmp_path, monkeypatch):
     assert captured["feedback"]["session_id"] == "session-7"
 
 
-def test_mcp_ask_uses_default_scope_from_env(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+def test_mcp_ask_uses_default_scope_from_env(db, monkeypatch):
     monkeypatch.setenv("AURORA_DEFAULT_USER_ID", "default-user")
     monkeypatch.setenv("AURORA_DEFAULT_PROJECT_ID", "default-project")
     monkeypatch.setenv("AURORA_DEFAULT_SESSION_ID", "default-session")
-    init_db()
 
     captured = {}
     monkeypatch.setattr(
@@ -630,11 +547,8 @@ def test_mcp_ask_uses_default_scope_from_env(tmp_path, monkeypatch):
     assert captured["feedback"]["session_id"] == "default-session"
 
 
-def test_mcp_memory_write_requires_explicit_intent(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+def test_mcp_memory_write_requires_explicit_intent(db, monkeypatch):
     monkeypatch.setenv("MCP_REQUIRE_EXPLICIT_INTENT", "1")
-    init_db()
 
     with pytest.raises(ValueError, match="memory_write.intent is required"):
         server_main.handle_request(
@@ -645,11 +559,8 @@ def test_mcp_memory_write_requires_explicit_intent(tmp_path, monkeypatch):
         )
 
 
-def test_mcp_ask_remember_requires_explicit_intent(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+def test_mcp_ask_remember_requires_explicit_intent(db, monkeypatch):
     monkeypatch.setenv("MCP_REQUIRE_EXPLICIT_INTENT", "1")
-    init_db()
 
     with pytest.raises(ValueError, match="ask.intent is required"):
         server_main.handle_request(
@@ -660,12 +571,9 @@ def test_mcp_ask_remember_requires_explicit_intent(tmp_path, monkeypatch):
         )
 
 
-def test_mcp_ingest_doc_blocks_without_allowlist(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+def test_mcp_ingest_doc_blocks_without_allowlist(db, tmp_path, monkeypatch):
     monkeypatch.delenv("AURORA_INGEST_PATH_ALLOWLIST", raising=False)
     monkeypatch.setenv("AURORA_INGEST_PATH_ALLOWLIST_ENFORCED", "1")
-    init_db()
 
     doc = tmp_path / "doc.txt"
     doc.write_text("hello", encoding="utf-8")
@@ -679,11 +587,8 @@ def test_mcp_ingest_doc_blocks_without_allowlist(tmp_path, monkeypatch):
         )
 
 
-def test_mcp_tool_allowlist_by_client_filters_and_blocks(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+def test_mcp_tool_allowlist_by_client_filters_and_blocks(db, monkeypatch):
     monkeypatch.setenv("MCP_TOOL_ALLOWLIST_BY_CLIENT", "codex=ask,memory_recall")
-    init_db()
 
     listed = server_main.handle_request({"method": "tools/list", "params": {"client_id": "codex"}})
     names = {tool.get("name") for tool in listed["tools"]}
@@ -698,11 +603,7 @@ def test_mcp_tool_allowlist_by_client_filters_and_blocks(tmp_path, monkeypatch):
         )
 
 
-def test_mcp_dashboard_stats_returns_progress_and_counts(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    init_db()
-
+def test_mcp_dashboard_stats_returns_progress_and_counts(db):
     server_main.handle_request(
         {
             "method": "tools/call",
@@ -731,11 +632,7 @@ def test_mcp_dashboard_stats_returns_progress_and_counts(tmp_path, monkeypatch):
     assert resp["progress"]["memory_percent"] >= 0
 
 
-def test_mcp_dashboard_timeseries_returns_buckets(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    init_db()
-
+def test_mcp_dashboard_timeseries_returns_buckets(db):
     resp = server_main.handle_request(
         {
             "method": "tools/call",
@@ -755,11 +652,7 @@ def test_mcp_dashboard_timeseries_returns_buckets(tmp_path, monkeypatch):
     assert "memory_written" in first
 
 
-def test_mcp_dashboard_alerts_returns_summary_and_alerts(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    init_db()
-
+def test_mcp_dashboard_alerts_returns_summary_and_alerts(db):
     resp = server_main.handle_request(
         {
             "method": "tools/call",
@@ -772,11 +665,7 @@ def test_mcp_dashboard_alerts_returns_summary_and_alerts(tmp_path, monkeypatch):
     assert resp["alerts"]
 
 
-def test_mcp_dashboard_models_returns_summary(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    init_db()
-
+def test_mcp_dashboard_models_returns_summary(db, monkeypatch):
     monkeypatch.setattr(
         server_main,
         "route_question",
