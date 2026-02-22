@@ -1,7 +1,6 @@
 """Tests for image OCR intake module."""
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 from app.core.ids import sha256_bytes
 from app.core.manifest import get_manifest

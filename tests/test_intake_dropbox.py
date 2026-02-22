@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from app.modules.intake.intake_dropbox import configured_dropbox_roots, enqueue_file_if_needed, scan_dropboxes_once
 from app.queue.db import get_conn, init_db

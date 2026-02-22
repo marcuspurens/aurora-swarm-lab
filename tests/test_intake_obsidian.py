@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from app.modules.intake import intake_obsidian
 from app.queue.db import init_db

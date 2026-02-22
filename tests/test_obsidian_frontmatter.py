@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from app.clients.obsidian_client import parse_frontmatter, parse_command
 

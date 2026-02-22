@@ -30,7 +30,7 @@ def test_ingest_youtube_writes_audio_and_enqueues_transcribe(tmp_path, monkeypat
 
     source_id = "youtube:abc123"
     source_version = sha256_bytes(b"audio-bytes")
-    manifest = intake_youtube.ingest_youtube("abc123", source_id, source_version)
+    _ = intake_youtube.ingest_youtube("abc123", source_id, source_version)
 
     stored = get_manifest(source_id, source_version)
     assert stored is not None

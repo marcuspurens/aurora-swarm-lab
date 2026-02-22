@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from app.modules.doc_extract import extract_doc
 from app.modules.doc_extract.extract_doc import extract
