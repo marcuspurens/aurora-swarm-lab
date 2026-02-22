@@ -4,16 +4,9 @@ from app.modules.memory.retrieval_feedback import (
     record_retrieval_feedback,
 )
 from app.queue.db import get_conn
-from app.queue.db import init_db
 
 
-def test_record_retrieval_feedback_writes_memory(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    monkeypatch.setenv("MEMORY_ENABLED", "1")
-    monkeypatch.setenv("RETRIEVAL_FEEDBACK_ENABLED", "1")
-    init_db()
-
+def test_record_retrieval_feedback_writes_memory(db, memory_enabled):
     receipt = record_retrieval_feedback(
         question="What is Aurora roadmap status?",
         evidence=[
@@ -32,13 +25,7 @@ def test_record_retrieval_feedback_writes_memory(tmp_path, monkeypatch):
     assert refs.get("kind") == "retrieval_feedback"
 
 
-def test_apply_retrieval_feedback_boosts_cited_and_penalizes_missed(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    monkeypatch.setenv("MEMORY_ENABLED", "1")
-    monkeypatch.setenv("RETRIEVAL_FEEDBACK_ENABLED", "1")
-    init_db()
-
+def test_apply_retrieval_feedback_boosts_cited_and_penalizes_missed(db, memory_enabled):
     record_retrieval_feedback(
         question="aurora roadmap timeline",
         evidence=[
@@ -58,13 +45,7 @@ def test_apply_retrieval_feedback_boosts_cited_and_penalizes_missed(tmp_path, mo
     assert float(rows[0].get("feedback_boost") or 0.0) > 0.0
 
 
-def test_apply_retrieval_feedback_respects_scope(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    monkeypatch.setenv("MEMORY_ENABLED", "1")
-    monkeypatch.setenv("RETRIEVAL_FEEDBACK_ENABLED", "1")
-    init_db()
-
+def test_apply_retrieval_feedback_respects_scope(db, memory_enabled):
     record_retrieval_feedback(
         question="aurora roadmap timeline",
         evidence=[{"doc_id": "doc-good", "segment_id": "seg-1", "retrieval_source": "keyword"}],
@@ -87,14 +68,9 @@ def test_apply_retrieval_feedback_respects_scope(tmp_path, monkeypatch):
     assert "feedback_boost" not in rows[0]
 
 
-def test_apply_retrieval_feedback_applies_time_decay(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    monkeypatch.setenv("MEMORY_ENABLED", "1")
-    monkeypatch.setenv("RETRIEVAL_FEEDBACK_ENABLED", "1")
+def test_apply_retrieval_feedback_applies_time_decay(db, memory_enabled, monkeypatch):
     monkeypatch.setenv("RETRIEVAL_FEEDBACK_DECAY_HALF_LIFE_HOURS", "1")
     monkeypatch.setenv("RETRIEVAL_FEEDBACK_CITED_BOOST", "0.1")
-    init_db()
 
     old_receipt = record_retrieval_feedback(
         question="aurora roadmap timeline",
@@ -129,14 +105,9 @@ def test_apply_retrieval_feedback_applies_time_decay(tmp_path, monkeypatch):
     assert fresh_boost > old_boost
 
 
-def test_apply_retrieval_feedback_caps_per_query_cluster(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    monkeypatch.setenv("MEMORY_ENABLED", "1")
-    monkeypatch.setenv("RETRIEVAL_FEEDBACK_ENABLED", "1")
+def test_apply_retrieval_feedback_caps_per_query_cluster(db, memory_enabled, monkeypatch):
     monkeypatch.setenv("RETRIEVAL_FEEDBACK_CLUSTER_CAP", "1")
     monkeypatch.setenv("RETRIEVAL_FEEDBACK_CITED_BOOST", "0.1")
-    init_db()
 
     record_retrieval_feedback(
         question="aurora roadmap timeline",

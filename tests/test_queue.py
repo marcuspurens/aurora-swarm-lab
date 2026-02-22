@@ -7,11 +7,7 @@ from app.queue.jobs import enqueue_job, claim_job, mark_done
 from app.queue.logs import log_run
 
 
-def test_queue_enqueue_claim_done(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
-    init_db()
-
+def test_queue_enqueue_claim_done(db):
     job_id = enqueue_job("ingest_url", "io", "url:https://example.com", "v1")
     job = claim_job("io")
     assert job is not None
@@ -26,12 +22,9 @@ def test_sqlite_relative_dot_path_stays_relative(tmp_path, monkeypatch):
     assert Path("data/aurora_queue.db").exists()
 
 
-def test_run_log_payload_is_capped(tmp_path, monkeypatch):
-    db_path = tmp_path / "queue.db"
-    monkeypatch.setenv("POSTGRES_DSN", f"sqlite://{db_path}")
+def test_run_log_payload_is_capped(db, monkeypatch):
     monkeypatch.setenv("RUN_LOG_MAX_JSON_CHARS", "320")
     monkeypatch.setenv("RUN_LOG_MAX_ERROR_CHARS", "240")
-    init_db()
 
     log_run(
         lane="io",
