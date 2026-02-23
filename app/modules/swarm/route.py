@@ -67,7 +67,7 @@ def _sanitize_filters(filters: object) -> dict:
     if not isinstance(filters, dict):
         return {}
 
-    out = {}
+    out: dict[str, str | list[str]] = {}
     topics = _sanitize_text_list(filters.get("topics"), max_items=10, max_len=80)
     entities = _sanitize_text_list(filters.get("entities"), max_items=10, max_len=80)
     source_type = normalize_user_text(filters.get("source_type"), max_len=40)
@@ -129,7 +129,7 @@ def _sanitize_date(value: object) -> str | None:
 
 def _clamp_int(value: object, default: int, low: int, high: int) -> int:
     try:
-        parsed = int(value)
+        parsed = int(value)  # type: ignore[call-overload]
     except Exception:
         parsed = default
     if parsed < low:

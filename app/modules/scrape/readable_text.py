@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from html import unescape
 from html.parser import HTMLParser
 from typing import List
 
@@ -61,12 +62,12 @@ class _TextExtractor(HTMLParser):
     def handle_entityref(self, name: str) -> None:
         if self._skip_depth > 0:
             return
-        self._parts.append(self.unescape(f"&{name};"))
+        self._parts.append(unescape(f"&{name};"))
 
     def handle_charref(self, name: str) -> None:
         if self._skip_depth > 0:
             return
-        self._parts.append(self.unescape(f"&#{name};"))
+        self._parts.append(unescape(f"&#{name};"))
 
     def text(self) -> str:
         return "".join(self._parts)
