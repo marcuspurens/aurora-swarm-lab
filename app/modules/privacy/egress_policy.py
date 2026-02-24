@@ -81,7 +81,7 @@ def apply_egress_policy(text: str, provider: str) -> EgressPolicyDecision:
         )
 
     if configured_mode == "off":
-        reason_codes = ["allow.egress_policy_off"]
+        reason_codes = ["allow.egress_policy_off"]  # type: ignore[no-redef]
         if mode_reason:
             reason_codes.insert(0, mode_reason)
         return EgressPolicyDecision(
@@ -101,7 +101,7 @@ def apply_egress_policy(text: str, provider: str) -> EgressPolicyDecision:
 
     transformed = raw
     total_count = 0
-    reason_codes: List[str] = [mode_reason] if mode_reason else []
+    reason_codes: List[str] = [mode_reason] if mode_reason else []  # type: ignore[no-redef]
     replacements: dict[str, str] = {}
     patterns = [
         ("email", _EMAIL_RE),
