@@ -162,6 +162,32 @@ def cmd_status(_args) -> None:
         print(f"- {status}: {count}")
 
 
+
+def cmd_library(_args) -> None:
+    """List all ingested sources in the library."""
+    from app.modules.library.list_sources import list_sources
+    sources = list_sources()
+    if not sources:
+        print("No sources in library.")
+        return
+    print(f"{'SOURCE':<60} {'DATE':<20} {'CHUNKS':>6} {'EMBEDS':>6}  STATUS")
+    print("-" * 110)
+    for s in sources:
+        print(f"{s['source_id']:<60} {s['date']:<20} {s['chunks']:>6} {s['embeddings']:>6}  {s['status']}")
+
+
+def cmd_delete_source(args) -> None:
+    """Delete a source and all its data."""
+    from app.modules.library.delete_source import delete_source
+    source_id = args.source_id
+    result = delete_source(source_id)
+    print(f"Deleted source: {source_id}")
+    print(f"  Embeddings removed: {result['embeddings_deleted']}")
+    print(f"  Jobs removed:       {result['jobs_deleted']}")
+    print(f"  Manifests removed:  {result['manifests_deleted']}")
+    print(f"  Artifacts removed:  {result['artifacts_removed']}")
+
+
 def cmd_ask(args) -> None:
     question = normalize_user_text(args.question, max_len=2400)
     if not question:
@@ -331,6 +357,10 @@ def main() -> int:
 
     sub.add_parser("status")
 
+    sub.add_parser("library", help="List all ingested sources")
+    p_del = sub.add_parser("delete-source", help="Delete a source and all its data")
+    p_del.add_argument("source_id", help="Source ID to delete (e.g. url:https://...)")
+
     p_ask = sub.add_parser("ask")
     p_ask.add_argument("question")
     p_ask.add_argument("--user-id", default=None)
@@ -401,6 +431,10 @@ def main() -> int:
         cmd_worker(args)
     elif args.cmd == "status":
         cmd_status(args)
+    elif args.cmd == "library":
+        cmd_library(args)
+    elif args.cmd == "delete-source":
+        cmd_delete_source(args)
     elif args.cmd == "ask":
         cmd_ask(args)
     elif args.cmd == "memory-write":
