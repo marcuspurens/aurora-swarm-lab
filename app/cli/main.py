@@ -144,7 +144,7 @@ def cmd_worker(args) -> None:
         "voiceprint_review": handle_voiceprint_review,
         "memory_maintain": handle_memory_maintain_job,
     }
-    run_worker(args.lane, handlers)
+    run_worker(args.lane, handlers, max_idle_polls=args.max_idle)
 
 
 def cmd_status(_args) -> None:
@@ -326,6 +326,8 @@ def main() -> int:
 
     p_worker = sub.add_parser("worker")
     p_worker.add_argument("--lane", required=True)
+    p_worker.add_argument("--max-idle", type=int, default=None,
+        help="Exit after N consecutive empty polls (drain mode)")
 
     sub.add_parser("status")
 
