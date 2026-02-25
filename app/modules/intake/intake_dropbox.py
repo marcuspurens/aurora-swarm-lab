@@ -11,6 +11,7 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 from app.core.ids import make_source_id, sha256_file
+from app.modules.library.delete_source import delete_source
 from app.modules.security.ingest_allowlist import ensure_ingest_path_allowed
 from app.queue.db import get_conn
 from app.queue.jobs import enqueue_job
@@ -173,6 +174,16 @@ class _DropboxHandler(FileSystemEventHandler):
         if event.is_directory:
             return
         self._handle_path(event.dest_path)
+
+    def on_deleted(self, event):  # type: ignore[override]
+        if event.is_directory:
+            return
+        path = Path(event.src_path).expanduser().resolve()
+        try:
+            source_id = make_source_id("file", str(path))
+            delete_source(source_id)
+        except Exception:
+            return
 
 
 def watch_dropboxes() -> None:

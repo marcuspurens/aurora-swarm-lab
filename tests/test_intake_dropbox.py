@@ -1,5 +1,13 @@
+import types
+from pathlib import Path
+from unittest.mock import patch
 
-from app.modules.intake.intake_dropbox import configured_dropbox_roots, enqueue_file_if_needed, scan_dropboxes_once
+from app.modules.intake.intake_dropbox import (
+    _DropboxHandler,
+    configured_dropbox_roots,
+    enqueue_file_if_needed,
+    scan_dropboxes_once,
+)
 from app.queue.db import get_conn, init_db
 
 
@@ -69,3 +77,34 @@ def test_scan_dropboxes_once_enqueues_files(tmp_path, monkeypatch):
 
     summary = scan_dropboxes_once(roots=[root], recursive=False)
     assert summary["queued"] == 2
+
+
+def test_on_deleted_calls_delete_source():
+    handler = _DropboxHandler()
+    event = types.SimpleNamespace(is_directory=False, src_path="/some/path/doc.md")
+    resolved = str(Path("/some/path/doc.md").expanduser().resolve())
+
+    with patch("app.modules.intake.intake_dropbox.make_source_id") as mock_make, \
+         patch("app.modules.intake.intake_dropbox.delete_source") as mock_delete:
+        mock_make.return_value = f"file:{resolved}"
+        handler.on_deleted(event)
+        mock_make.assert_called_once_with("file", resolved)
+        mock_delete.assert_called_once_with(f"file:{resolved}")
+
+
+def test_on_deleted_skips_directory():
+    handler = _DropboxHandler()
+    event = types.SimpleNamespace(is_directory=True, src_path="/some/dir")
+
+    with patch("app.modules.intake.intake_dropbox.delete_source") as mock_delete:
+        handler.on_deleted(event)
+        mock_delete.assert_not_called()
+
+
+def test_on_deleted_handles_exception_gracefully():
+    handler = _DropboxHandler()
+    event = types.SimpleNamespace(is_directory=False, src_path="/some/path/doc.md")
+
+    with patch("app.modules.intake.intake_dropbox.make_source_id", return_value="file:/some/path/doc.md"), \
+         patch("app.modules.intake.intake_dropbox.delete_source", side_effect=RuntimeError("boom")):
+        handler.on_deleted(event)  # Should NOT raise
