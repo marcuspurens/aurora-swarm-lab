@@ -1,6 +1,15 @@
+from unittest.mock import patch
+
 import pytest
 
 from app.queue.db import init_db
+
+
+@pytest.fixture(autouse=True)
+def _suppress_dotenv():
+    """Prevent load_dotenv() from loading .env during tests."""
+    with patch("app.core.config.load_dotenv"):
+        yield
 
 
 @pytest.fixture

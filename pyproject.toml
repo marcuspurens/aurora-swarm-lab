@@ -6,7 +6,13 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "pydantic>=2.5",
+  "python-dotenv>=1.0",
+  "yt-dlp>=2024.1",
+  "python-docx>=1.1",
 ]
+
+[project.optional-dependencies]
+snowflake = ["snowflake-connector-python>=3.0"]
 
 [project.scripts]
 aurora = "app.cli.main:main"

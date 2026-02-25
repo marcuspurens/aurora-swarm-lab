@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -83,6 +85,7 @@ def _getenv_bool(name: str, default: bool = False) -> bool:
 
 
 def load_settings() -> Settings:
+    load_dotenv()
     artifact_root = Path(os.getenv("ARTIFACT_ROOT", "./data/artifacts")).resolve()
     obsidian_path = os.getenv("OBSIDIAN_VAULT_PATH")
 
