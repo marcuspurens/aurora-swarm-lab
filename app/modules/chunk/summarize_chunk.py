@@ -30,8 +30,8 @@ def summarize_chunk(text: str, context: str = "") -> str:
             {
                 "role": "user",
                 "content": (
-                    "Summarize this text in 1-2 sentences, capturing key "
-                    "topics, names, and conclusions:\n\n" + user_content
+                    "Summarize this text in 1-2 sentences in the same language as the text, "
+                    "capturing key topics, names, and conclusions:\n\n" + user_content
                 ),
             }
         ],
