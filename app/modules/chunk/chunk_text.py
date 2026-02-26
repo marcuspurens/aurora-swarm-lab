@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 from typing import Dict, List
 
+from app.core.config import load_settings
 from app.core.manifest import get_manifest, upsert_manifest
 from app.core.storage import artifact_path, read_artifact, write_artifact
 from app.core.timeutil import utc_now
+from app.modules.chunk.summarize_chunk import summarize_chunk
 from app.queue.jobs import enqueue_job
 from app.queue.logs import log_run
 
@@ -31,9 +33,16 @@ def _split_words(text: str, max_words: int, overlap_words: int) -> List[str]:
     return chunks
 
 
-def chunk(text: str, doc_id: str, max_words: int = 200, overlap_words: int = 20) -> List[Dict[str, object]]:
+def chunk(
+    text: str,
+    doc_id: str,
+    max_words: int = 200,
+    overlap_words: int = 20,
+    source_context: str = "",
+) -> List[Dict[str, object]]:
+    """Split *text* into word-based chunks with optional AI summaries."""
     parts = _split_words(text, max_words, overlap_words)
-    chunks = []
+    chunks: List[Dict[str, object]] = []
     for idx, part in enumerate(parts, start=1):
         chunks.append(
             {
@@ -46,6 +55,21 @@ def chunk(text: str, doc_id: str, max_words: int = 200, overlap_words: int = 20)
                 "source_refs": {"chunk_index": idx},
             }
         )
+
+    settings = load_settings()
+    if settings.chunk_summaries_enabled:
+        for c in chunks:
+            chunk_text_val = str(c.get("text", ""))
+            summary = summarize_chunk(chunk_text_val, context=source_context)
+            c["summary"] = summary
+            c["text_to_embed"] = (
+                f"Summary: {summary}\n{chunk_text_val}" if summary else chunk_text_val
+            )
+    else:
+        for c in chunks:
+            c["summary"] = ""
+            c["text_to_embed"] = str(c.get("text", ""))
+
     return chunks
 
 
@@ -75,9 +99,28 @@ def handle_job(job: Dict[str, object]) -> None:
         input_json={"source_id": source_id, "source_version": source_version},
     )
 
-    chunks = chunk(text, doc_id=source_id)
+    # Build source context for chunk summaries
+    source_context = ""
     metadata = manifest.get("metadata")
     intake_meta = metadata.get("intake") if isinstance(metadata, dict) else None
+    if isinstance(intake_meta, dict):
+        source_metadata = intake_meta.get("source_metadata")
+        if isinstance(source_metadata, dict):
+            parts: list[str] = []
+            speaker = str(source_metadata.get("speaker") or "").strip()
+            if speaker:
+                parts.append(f"Speaker: {speaker}")
+            organization = str(source_metadata.get("organization") or "").strip()
+            if organization:
+                parts.append(f"Organization: {organization}")
+            event_date = str(source_metadata.get("event_date") or "").strip()
+            if event_date:
+                parts.append(f"Date: {event_date}")
+            source_context = ", ".join(parts)
+
+    chunks = chunk(text, doc_id=source_id, source_context=source_context)
+
+    # Enrich chunks with intake metadata
     if isinstance(intake_meta, dict):
         tags = intake_meta.get("tags")
         context = str(intake_meta.get("context") or "").strip()

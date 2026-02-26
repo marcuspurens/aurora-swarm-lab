@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 from typing import Dict, List
 
+from app.core.config import load_settings
 from app.core.manifest import get_manifest, upsert_manifest
 from app.core.storage import artifact_path, read_artifact, write_artifact
 from app.core.timeutil import utc_now
+from app.modules.chunk.summarize_chunk import summarize_chunk
 from app.queue.jobs import enqueue_job
 from app.queue.logs import log_run
 
@@ -16,7 +18,7 @@ CHUNKS_REL_PATH = "chunks/chunks.jsonl"
 
 
 def _load_segments(text: str) -> List[Dict[str, object]]:
-    segments = []
+    segments: List[Dict[str, object]] = []
     for line in text.splitlines():
         line = line.strip()
         if not line:
@@ -25,7 +27,13 @@ def _load_segments(text: str) -> List[Dict[str, object]]:
     return segments
 
 
-def chunk(segments: List[Dict[str, object]], doc_id: str, max_chars: int = 800) -> List[Dict[str, object]]:
+def chunk(
+    segments: List[Dict[str, object]],
+    doc_id: str,
+    max_chars: int = 800,
+    source_context: str = "",
+) -> List[Dict[str, object]]:
+    """Combine transcript segments into chunks with optional AI summaries."""
     chunks: List[Dict[str, object]] = []
     current: List[Dict[str, object]] = []
     current_len = 0
@@ -65,6 +73,40 @@ def chunk(segments: List[Dict[str, object]], doc_id: str, max_chars: int = 800) 
         current_len += len(seg_text)
 
     flush()
+
+    settings = load_settings()
+    if settings.chunk_summaries_enabled:
+        for c in chunks:
+            chunk_text_val = str(c.get("text", ""))
+            speaker_val = str(c.get("speaker") or "")
+            start_ms_val = c.get("start_ms")
+            end_ms_val = c.get("end_ms")
+            ctx = source_context
+            if speaker_val and speaker_val != "MIXED":
+                time_part = ""
+                if isinstance(start_ms_val, (int, float)) and isinstance(
+                    end_ms_val, (int, float)
+                ):
+                    time_part = (
+                        f"Time: {int(start_ms_val) // 1000}s-"
+                        f"{int(end_ms_val) // 1000}s"
+                    )
+                parts = [f"Speaker: {speaker_val}"]
+                if time_part:
+                    parts.append(time_part)
+                if source_context:
+                    parts.append(source_context)
+                ctx = ", ".join(parts)
+            summary = summarize_chunk(chunk_text_val, context=ctx)
+            c["summary"] = summary
+            c["text_to_embed"] = (
+                f"Summary: {summary}\n{chunk_text_val}" if summary else chunk_text_val
+            )
+    else:
+        for c in chunks:
+            c["summary"] = ""
+            c["text_to_embed"] = str(c.get("text", ""))
+
     return chunks
 
 
@@ -95,9 +137,26 @@ def handle_job(job: Dict[str, object]) -> None:
     )
 
     segments = _load_segments(seg_text)
-    chunks = chunk(segments, doc_id=source_id)
+
+    # Build source context for chunk summaries
+    source_context = ""
     metadata = manifest.get("metadata")
     intake_meta = metadata.get("intake") if isinstance(metadata, dict) else None
+    if isinstance(intake_meta, dict):
+        source_metadata = intake_meta.get("source_metadata")
+        if isinstance(source_metadata, dict):
+            ctx_parts: list[str] = []
+            speaker = str(source_metadata.get("speaker") or "").strip()
+            if speaker:
+                ctx_parts.append(f"Speaker: {speaker}")
+            organization = str(source_metadata.get("organization") or "").strip()
+            if organization:
+                ctx_parts.append(f"Organization: {organization}")
+            source_context = ", ".join(ctx_parts)
+
+    chunks = chunk(segments, doc_id=source_id, source_context=source_context)
+
+    # Enrich chunks with intake metadata
     if isinstance(intake_meta, dict):
         tags = intake_meta.get("tags")
         context = str(intake_meta.get("context") or "").strip()

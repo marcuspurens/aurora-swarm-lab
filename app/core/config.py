@@ -28,6 +28,7 @@ class Settings:
     ollama_request_retries: int
     ollama_request_backoff_seconds: float
     embeddings_enabled: bool
+    chunk_summaries_enabled: bool
     memory_enabled: bool
     memory_retrieve_limit: int
     memory_maintenance_feedback_retention_days: int
@@ -107,6 +108,7 @@ def load_settings() -> Settings:
         ollama_request_retries=max(0, int(os.getenv("OLLAMA_REQUEST_RETRIES", "2"))),
         ollama_request_backoff_seconds=max(0.0, float(os.getenv("OLLAMA_REQUEST_BACKOFF_SECONDS", "0.5"))),
         embeddings_enabled=_getenv_bool("EMBEDDINGS_ENABLED", True),
+        chunk_summaries_enabled=_getenv_bool("CHUNK_SUMMARIES_ENABLED", True),
         memory_enabled=_getenv_bool("MEMORY_ENABLED", True),
         memory_retrieve_limit=int(os.getenv("MEMORY_RETRIEVE_LIMIT", "4")),
         memory_maintenance_feedback_retention_days=max(

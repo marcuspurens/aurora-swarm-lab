@@ -58,7 +58,7 @@ def handle_job(job: Dict[str, object]) -> None:
     existing_hashes = get_embedding_hashes(source_id)
     embedded = 0
     for chunk in chunks:
-        text = str(chunk.get("text", "")).strip()
+        text = str(chunk.get("text_to_embed", chunk.get("text", ""))).strip()
         if not text:
             continue
         segment_id = str(chunk.get("segment_id"))
