@@ -13,6 +13,7 @@ dependencies = [
 
 [project.optional-dependencies]
 snowflake = ["snowflake-connector-python>=3.0"]
+headless = ["playwright>=1.40"]
 
 [project.scripts]
 aurora = "app.cli.main:main"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Dict
+from urllib.parse import urlparse
 
 from app.core.ids import make_source_id, parse_source_id, sha256_text
 from app.core.manifest import get_manifest, upsert_manifest
@@ -18,6 +19,15 @@ RAW_HTML_PATH = "raw/url.html"
 CANONICAL_TEXT_PATH = "text/canonical.txt"
 
 
+def _is_valid_url(url: str) -> bool:
+    """Return True if *url* has an http(s) scheme and a non-empty netloc."""
+    try:
+        parsed = urlparse(url)
+        return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+    except Exception:
+        return False
+
+
 def compute_source_version(url: str) -> str:
     html = scrape(url)
     text = extract(html)
@@ -25,6 +35,8 @@ def compute_source_version(url: str) -> str:
 
 
 def enqueue(url: str) -> str:
+    if not _is_valid_url(url):
+        raise ValueError(f"Invalid URL: {url}")
     source_id = make_source_id("url", url)
     source_version = compute_source_version(url)
     return enqueue_job("ingest_url", "io", source_id, source_version)
